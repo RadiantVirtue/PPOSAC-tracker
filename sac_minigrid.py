@@ -93,38 +93,18 @@ def layer_init(layer, bias_const=0.0):
 
 
 # ALGO LOGIC: initialize agent here:
-# NOTE: Sharing a CNN encoder between Actor and Critics is not recommended for SAC without stopping actor gradients
-# See the SAC+AE paper https://arxiv.org/abs/1910.01741 for more info
-# TL;DR The actor's gradients mess up the representation when using a joint encoder
 class SoftQNetwork(nn.Module):
     def __init__(self, envs):
         super().__init__()
-        obs_shape = envs.single_observation_space.shape  # (7, 7, 3) for default Minigrid
-
-        # CNN encoder for grid observations
-        # Input needs to be (batch, C, H, W), observations come as (H, W, C)
-        self.conv = nn.Sequential(
-            layer_init(nn.Conv2d(obs_shape[2], 32, kernel_size=3, stride=1, padding=1)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)),
-            nn.ReLU(),
-            nn.Flatten(),
-        )
-
-        with torch.inference_mode():
-            sample = torch.zeros(1, obs_shape[2], obs_shape[0], obs_shape[1])
-            output_dim = self.conv(sample).shape[1]
-
-        self.fc1 = layer_init(nn.Linear(output_dim, 256))
+        obs_dim = np.array(envs.single_observation_space.shape).prod()
+        self.fc1 = layer_init(nn.Linear(obs_dim, 256))
+        self.fc2 = layer_init(nn.Linear(256, 256))
         self.fc_q = layer_init(nn.Linear(256, envs.single_action_space.n))
 
     def forward(self, x):
-        # x comes in as (batch, H, W, C), need (batch, C, H, W)
-        x = x.permute(0, 3, 1, 2) / 255.0
-        x = F.relu(self.conv(x))
+        x = x.flatten(start_dim=1)  # Flatten (batch, H, W, C) -> (batch, H*W*C)
         x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         q_vals = self.fc_q(x)
         return q_vals
 
@@ -132,31 +112,15 @@ class SoftQNetwork(nn.Module):
 class Actor(nn.Module):
     def __init__(self, envs):
         super().__init__()
-        obs_shape = envs.single_observation_space.shape  # (7, 7, 3) for default Minigrid
-
-        # CNN encoder for grid observations
-        self.conv = nn.Sequential(
-            layer_init(nn.Conv2d(obs_shape[2], 32, kernel_size=3, stride=1, padding=1)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)),
-            nn.ReLU(),
-            nn.Flatten(),
-        )
-
-        with torch.inference_mode():
-            sample = torch.zeros(1, obs_shape[2], obs_shape[0], obs_shape[1])
-            output_dim = self.conv(sample).shape[1]
-
-        self.fc1 = layer_init(nn.Linear(output_dim, 256))
+        obs_dim = np.array(envs.single_observation_space.shape).prod()
+        self.fc1 = layer_init(nn.Linear(obs_dim, 256))
+        self.fc2 = layer_init(nn.Linear(256, 256))
         self.fc_logits = layer_init(nn.Linear(256, envs.single_action_space.n))
 
     def forward(self, x):
-        # x comes in as (batch, H, W, C), need (batch, C, H, W)
-        x = x.permute(0, 3, 1, 2) / 255.0
-        x = F.relu(self.conv(x))
+        x = x.flatten(start_dim=1)  # Flatten (batch, H, W, C) -> (batch, H*W*C)
         x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         logits = self.fc_logits(x)
         return logits
 
