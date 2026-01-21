@@ -2,12 +2,6 @@
 
 PPO and SAC implementations adapted for Minigrid environments, based on [CleanRL](https://github.com/vwxyzjn/cleanrl).
 
-## Installation
-
-```bash
-pip install gymnasium numpy torch tyro tensorboard minigrid cleanrl
-```
-
 ## Usage
 
 Edit the configs at the top of `main.py`:
