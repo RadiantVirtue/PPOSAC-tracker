@@ -170,8 +170,7 @@ class Actor(nn.Module):
         return action, log_prob, action_probs
 
 
-if __name__ == "__main__":
-    args = tyro.cli(Args)
+def main_sac(args):
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
@@ -340,3 +339,8 @@ if __name__ == "__main__":
 
     envs.close()
     writer.close()
+
+
+if __name__ == "__main__":
+    args = tyro.cli(Args)
+    main_sac(args)
