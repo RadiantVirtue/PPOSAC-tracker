@@ -2,15 +2,9 @@
 
 PPO and SAC implementations adapted for Minigrid environments, based on [CleanRL](https://github.com/vwxyzjn/cleanrl).
 
-## Installation
-
-```bash
-pip install gymnasium numpy torch tyro tensorboard minigrid cleanrl
-```
-
 ## Usage
 
-Edit the configuration at the top of `main.py`:
+Edit the configs at the top of `main.py`:
 
 ```python
 # Select environment
@@ -55,6 +49,8 @@ python main.py
 
 Full list: https://minigrid.farama.org/environments/minigrid/
 
+**Can just download file and save to folder, and use that instead**
+
 ## Monitoring
 
 Training logs are saved to `runs/` directory. View with TensorBoard:
@@ -62,12 +58,13 @@ Training logs are saved to `runs/` directory. View with TensorBoard:
 ```bash
 tensorboard --logdir runs
 ```
+**FULL TRAINING LOGS + FROZEN AGENTS TBA**
 
 ## Key Adaptations from Original CleanRL
 
 The Minigrid versions differ from the originals in:
 
-1. **Observation handling**: Minigrid returns a Dict observation; we use `ImgObsWrapper` to extract just the 7x7x3 image grid
-2. **Network architecture**: CNN instead of MLP to process spatial grid observations
-3. **Channel ordering**: Permute from (H, W, C) to (C, H, W) for PyTorch Conv2d
-4. **Removed Atari wrappers**: No frame stacking, grayscale, or reward clipping needed
+1. **Observation handling**: Minigrid returns a Dict observation; I use `ImgObsWrapper` to just extract the 7x7x3 image grid
+2. **Network architecture**: CNN instead of MLP
+3. **Channel ordering**:  from (H, W, C) to (C, H, W) for PyTorch Conv2d
+4. **Removed Atari wrappers**: No frame stacking, grayscale, or reward clipping
