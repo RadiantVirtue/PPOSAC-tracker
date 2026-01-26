@@ -2,32 +2,66 @@
 
 PPO and SAC implementations adapted for MiniGrid environments, based on [CleanRL](https://github.com/vwxyzjn/cleanrl).
 
-## Usage
+## Installation
+
+```bash
+pip install gymnasium minigrid torch numpy tyro tensorboard
+```
+
+## Training
 
 Edit the configs at the top of `main.py`:
 
 ```python
-# Select environment
 ENV_ID = "MiniGrid-Empty-5x5-v0"
-
-# Select algorithm: "ppo" or "sac"
-ALGORITHM = "ppo"
-
-# Training settings
+ALGORITHM = "ppo"  # "ppo" or "sac"
 TOTAL_TIMESTEPS = 500000
 SEED = 1
 CAPTURE_VIDEO = False
 TRACK_WANDB = False
 ```
-## RL Files
+
+Then run: `python main.py`
+
+**Checkpointing:** Pass `checkpoint_freq` to save periodic checkpoints. Set to `0` to disable (default).
+
+```python
+args = Args(
+    env_id=ENV_ID,
+    total_timesteps=TOTAL_TIMESTEPS,
+    checkpoint_freq=50000,  # Save every 50k steps
+)
+```
+
+Checkpoints saved to `checkpoints/{run_name}/step_{step}.pt` and `checkpoints/{run_name}/final.pt`
+
+## Running Frozen Agents
+
+Edit config at top of `run_ppo_agent.py` or `run_sac_agent.py`:
+
+```python
+CHECKPOINT = "checkpoints/MiniGrid-DoorKey-5x5-v0__ppo_minigrid__1__1234567890/final.pt"
+EPISODES = 5
+RENDER = True
+DETERMINISTIC = True  # argmax vs sampling
+DELAY = 0.1
+```
+
+Then run: `python run_ppo_agent.py` (or `run_sac_agent.py`)
+
+Environment is auto-detected from checkpoint path.
+
+## Files
 
 | File | Description |
 |------|-------------|
-| `main.py` | Main entry point with configuration |
+| `main.py` | Main training entry point |
 | `ppo_minigrid.py` | PPO implementation for MiniGrid |
 | `sac_minigrid.py` | SAC implementation for MiniGrid |
+| `run_ppo_agent.py` | Run frozen PPO agents |
+| `run_sac_agent.py` | Run frozen SAC agents |
 | `ppo.py` | Original PPO for general environments |
-| `sac_atari.py` | SAC adapted for Atari environments |
+| `sac_atari.py` | SAC for Atari environments |
 
 ### Custom Environments
 
@@ -55,12 +89,8 @@ Full list: https://minigrid.farama.org/environments/minigrid/
 
 ## Monitoring
 
-Training logs are saved to the `runs/` directory. View with TensorBoard:
+Training logs saved to `runs/`. View with TensorBoard:
 
 ```bash
-tensorboard --logdir runs
+python -m tensorboard.main --logdir runs
 ```
-
-1. **Observation handling**: MiniGrid returns a Dict observation; uses `ImgObsWrapper` to extract the 7x7x3 image grid
-2. **Network architecture**: MLP (7x7x3 = 147 input features)
-3. **Removed Atari wrappers**: No frame stacking, grayscale, or reward clipping
