@@ -7,12 +7,12 @@
 # "MiniGrid-FourRooms-v0"
 # "MiniGrid-LavaGapS5-v0"
 # "MiniGrid-SimpleCrossingS9N1-v0"
-ENV_ID = "MiniGrid-Empty-5x5-v0"
+ENV_ID = "MiniGrid-FourRooms-v0"
 
 # Available algorithms: "ppo" or "sac"
 ALGORITHM = "ppo"
 
-TOTAL_TIMESTEPS = 500000
+TOTAL_TIMESTEPS = 200000
 SEED = 1
 CAPTURE_VIDEO = False
 TRACK_WANDB = False
