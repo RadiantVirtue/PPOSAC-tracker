@@ -69,6 +69,8 @@ class Args:
     """automatic tuning of the entropy coefficient"""
     target_entropy_scale: float = 0.89
     """coefficient for scaling the autotune entropy target"""
+    checkpoint_freq: int = 0
+    """save checkpoint every N steps (0 to disable)"""
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -132,6 +134,28 @@ class Actor(nn.Module):
         action_probs = policy_dist.probs
         log_prob = F.log_softmax(logits, dim=1)
         return action, log_prob, action_probs
+
+
+def save_checkpoint_sac(actor, qf1, qf2, qf1_target, qf2_target,
+                        q_optimizer, actor_optimizer, global_step, path,
+                        log_alpha=None, a_optimizer=None):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    checkpoint = {
+        "global_step": global_step,
+        "actor_state_dict": actor.state_dict(),
+        "qf1_state_dict": qf1.state_dict(),
+        "qf2_state_dict": qf2.state_dict(),
+        "qf1_target_state_dict": qf1_target.state_dict(),
+        "qf2_target_state_dict": qf2_target.state_dict(),
+        "q_optimizer_state_dict": q_optimizer.state_dict(),
+        "actor_optimizer_state_dict": actor_optimizer.state_dict(),
+    }
+    if log_alpha is not None:
+        checkpoint["log_alpha"] = log_alpha.detach().cpu()
+    if a_optimizer is not None:
+        checkpoint["a_optimizer_state_dict"] = a_optimizer.state_dict()
+    torch.save(checkpoint, path)
+    print(f"Checkpoint saved: {path}")
 
 
 def main_sac(args):
@@ -300,6 +324,26 @@ def main_sac(args):
                 writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
                 if args.autotune:
                     writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
+
+            # Checkpointing
+            if args.checkpoint_freq > 0 and global_step % args.checkpoint_freq == 0:
+                checkpoint_path = f"checkpoints/{run_name}/step_{global_step}.pt"
+                save_checkpoint_sac(
+                    actor, qf1, qf2, qf1_target, qf2_target,
+                    q_optimizer, actor_optimizer, global_step, checkpoint_path,
+                    log_alpha if args.autotune else None,
+                    a_optimizer if args.autotune else None
+                )
+
+    # Save final checkpoint
+    if args.checkpoint_freq > 0:
+        checkpoint_path = f"checkpoints/{run_name}/final.pt"
+        save_checkpoint_sac(
+            actor, qf1, qf2, qf1_target, qf2_target,
+            q_optimizer, actor_optimizer, global_step, checkpoint_path,
+            log_alpha if args.autotune else None,
+            a_optimizer if args.autotune else None
+        )
 
     envs.close()
     writer.close()

@@ -72,6 +72,8 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
+    checkpoint_freq: int = 0
+    """save checkpoint every N steps (0 to disable)"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -131,6 +133,16 @@ class Agent(nn.Module):
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action), probs.entropy(), self.critic(x)
+
+
+def save_checkpoint_ppo(agent, optimizer, global_step, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save({
+        "global_step": global_step,
+        "agent_state_dict": agent.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+    }, path)
+    print(f"Checkpoint saved: {path}")
 
 
 def main_ppo(args):
@@ -313,6 +325,16 @@ def main_ppo(args):
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+
+        # Checkpointing
+        if args.checkpoint_freq > 0 and global_step % args.checkpoint_freq == 0:
+            checkpoint_path = f"checkpoints/{run_name}/step_{global_step}.pt"
+            save_checkpoint_ppo(agent, optimizer, global_step, checkpoint_path)
+
+    # Save final checkpoint
+    if args.checkpoint_freq > 0:
+        checkpoint_path = f"checkpoints/{run_name}/final.pt"
+        save_checkpoint_ppo(agent, optimizer, global_step, checkpoint_path)
 
     envs.close()
     writer.close()
