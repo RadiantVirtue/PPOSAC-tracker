@@ -19,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 import minigrid
 from minigrid.wrappers import ImgObsWrapper, OneHotPartialObsWrapper
 
-from envs import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
+from wrappers import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
 from sac.tagged_buffer import TaggedReplayBuffer, EpisodeStore
 
 

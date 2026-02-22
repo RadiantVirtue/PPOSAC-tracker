@@ -6,7 +6,7 @@ import minigrid  # noqa: F401  — registers MiniGrid envs with gymnasium
 import numpy as np
 import torch
 
-from envs import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
+from wrappers import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
 from shared.thresholding import partition_episodes
 
 EpisodeData = namedtuple(
