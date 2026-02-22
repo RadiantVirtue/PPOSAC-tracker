@@ -18,7 +18,7 @@ ENVIRONMENT_FAMILIES = {
 }
 
 FAMILIES_TO_RUN = list(ENVIRONMENT_FAMILIES.keys())
-ALGORITHMS = ["ppo", "sac"]
+ALGORITHMS = ["ppo"]
 
 SOLVE_THRESHOLD = 0.75    # fraction of episodes that must be solved
 EVAL_WINDOW = 100         # rolling window size for solve rate

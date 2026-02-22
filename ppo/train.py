@@ -42,6 +42,7 @@ class Args:
     epochs: int = 4
     batch_size: int = 256
     checkpoint_freq: int = 1000
+    checkpoint_achievements: bool = True
     experiment_root: str = "experiment_root"
 
 
@@ -155,11 +156,15 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
         logs2 = algo.update_parameters(exps)
 
         # Check for milestone achievements captured during this collect call
-        for env in envs:
-            for info in env.pop_all_infos():
-                milestone_tracker.check_and_save(
-                    info, acmodel, algo.optimizer, global_step, episode_count
-                )
+        if args.checkpoint_achievements:
+            for env in envs:
+                for info in env.pop_all_infos():
+                    milestone_tracker.check_and_save(
+                        info, acmodel, algo.optimizer, global_step, episode_count
+                    )
+        else:
+            for env in envs:
+                env.pop_all_infos()  # drain the queue to prevent unbounded growth
 
         # Count completed episodes and handle should_stop
         stop = False
