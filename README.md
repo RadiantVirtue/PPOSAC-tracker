@@ -15,7 +15,7 @@ Edit the configs at the top of `main.py`:
 ```python
 ENV_ID = "MiniGrid-Empty-5x5-v0"
 ALGORITHM = "ppo"  # "ppo" or "sac"
-TOTAL_TIMESTEPS = 500000
+TOTAL_EPISODES = 10000
 SEED = 1
 CAPTURE_VIDEO = False
 TRACK_WANDB = False
@@ -28,12 +28,12 @@ Then run: `python main.py`
 ```python
 args = Args(
     env_id=ENV_ID,
-    total_timesteps=TOTAL_TIMESTEPS,
-    checkpoint_freq=50000,  # Save every 50k steps
+    total_episodes=TOTAL_EPISODES,
+    checkpoint_freq=1000,  # Save every 1000 episodes
 )
 ```
 
-Checkpoints saved to `checkpoints/{run_name}/step_{step}.pt` and `checkpoints/{run_name}/final.pt`
+Checkpoints saved to `checkpoints/{algorithm}/ep_{episode}.pt` and `checkpoints/{algorithm}/final.pt`
 
 ## Running Frozen Agents
 
