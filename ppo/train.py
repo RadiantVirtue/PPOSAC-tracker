@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from model import ACModel
 from utils.format import get_obss_preprocessor
 
-from envs import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
+from wrappers import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
 from ppo.checkpoint_gen import MilestoneTracker
 
 
