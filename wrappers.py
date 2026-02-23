@@ -2,7 +2,9 @@ import gymnasium as gym
 
 from shared.achievements import (
     DOORKEY_ACHIEVEMENTS,
+    DOORKEY_ACHIEVEMENT_REWARDS,
     KEYCORRIDOR_ACHIEVEMENTS,
+    KEYCORRIDOR_ACHIEVEMENT_REWARDS,
     compute_eps,
     count_achievements,
 )
@@ -27,6 +29,7 @@ class DoorKeyAchievementWrapper(gym.Wrapper):
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         inner = self.unwrapped
+        prev_ach = dict(self._ach)
 
         # Detect key pickup
         if inner.carrying is not None and inner.carrying.type == 'key':
@@ -63,9 +66,16 @@ class DoorKeyAchievementWrapper(gym.Wrapper):
         if terminated and reward > 0:
             self._ach["reached_goal"] = True
 
+        # Shaped reward: bonus for each newly unlocked achievement this step
+        shaped = sum(
+            DOORKEY_ACHIEVEMENT_REWARDS[k]
+            for k, v in self._ach.items()
+            if v and not prev_ach[k]
+        )
+
         info["achievements"] = dict(self._ach)
         info["eps"] = compute_eps(count_achievements(self._ach), 0.0)
-        return obs, reward, terminated, truncated, info
+        return obs, reward + shaped, terminated, truncated, info
 
 
 class KeyCorridorAchievementWrapper(gym.Wrapper):
@@ -87,6 +97,7 @@ class KeyCorridorAchievementWrapper(gym.Wrapper):
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         inner = self.unwrapped
+        prev_ach = dict(self._ach)
 
         # Detect what the agent is carrying
         if inner.carrying is not None:
@@ -120,6 +131,13 @@ class KeyCorridorAchievementWrapper(gym.Wrapper):
             self._ach["opened_door"] = True
         self._prev_open_doors = curr_open_doors
 
+        # Shaped reward: bonus for each newly unlocked achievement this step
+        shaped = sum(
+            KEYCORRIDOR_ACHIEVEMENT_REWARDS[k]
+            for k, v in self._ach.items()
+            if v and not prev_ach[k]
+        )
+
         info["achievements"] = dict(self._ach)
         info["eps"] = compute_eps(count_achievements(self._ach), 0.0)
-        return obs, reward, terminated, truncated, info
+        return obs, reward + shaped, terminated, truncated, info
