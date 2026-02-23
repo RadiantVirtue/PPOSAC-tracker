@@ -17,9 +17,7 @@ ENVIRONMENT_FAMILIES = {
         "MiniGrid-DoorKey-8x8-v0",
     ],
     "KeyCorridor": [
-        "MiniGrid-KeyCorridorS3R3-v0",
-        "MiniGrid-KeyCorridorS4R3-v0",
-        "MiniGrid-KeyCorridorS5R3-v0",
+        "MiniGrid-KeyCorridorS3R3-v0"
     ],
 }
 

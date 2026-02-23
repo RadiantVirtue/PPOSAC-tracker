@@ -12,11 +12,11 @@ def opposition_score(grad_success, grad_failure):
 
 
 # average pairwise cosine similarity within a list of gradient dicts
-# each element is an L2-normalised gradient dict from a minibatch of ~50 episodes
+# each element is an L2-normalised gradient dict from a single episode
 def coherence(minibatch_gradients):
     n = len(minibatch_gradients)
     if n < 2:
-        return 1.0
+        return None
     sims = []
     for i in range(n):
         for j in range(i + 1, n):
