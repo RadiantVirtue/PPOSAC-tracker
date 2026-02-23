@@ -293,11 +293,7 @@ def main_sac(args, on_checkpoint_saved=None, should_stop=None):
                     on_checkpoint_saved(f"{ckpt_base}.pt")
                 next_checkpoint += args.checkpoint_freq
 
-            ep_solved = (
-                achievements.get("picked_up_target", False)
-                or achievements.get("reached_goal", False)
-            )
-            if should_stop and should_stop(ep_solved):
+            if should_stop and should_stop({"achievements": achievements}):
                 break
 
         obs = next_obs

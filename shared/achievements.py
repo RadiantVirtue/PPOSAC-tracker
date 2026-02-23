@@ -16,6 +16,24 @@ KEYCORRIDOR_ACHIEVEMENTS = [
     "picked_up_target",
 ]
 
+DOORKEY_ACHIEVEMENT_REWARDS = {
+    "found_key":     0.05,
+    "picked_up_key": 0.05,
+    "reached_door":  0.1,
+    "opened_door":   0.1,
+    "crossed_door":  0.1,
+    "reached_goal":  1.0,   # strongly biased final
+}
+
+KEYCORRIDOR_ACHIEVEMENT_REWARDS = {
+    "found_key":        0.05,
+    "picked_up_key":    0.05,
+    "reached_door":     0.1,
+    "opened_door":      0.1,
+    "found_target":     0.1,
+    "picked_up_target": 1.0,   # strongly biased final
+}
+
 
 def get_achievements_for_env(env_id):
     if "KeyCorridor" in env_id:

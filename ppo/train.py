@@ -10,6 +10,8 @@ import gymnasium as gym
 import numpy as np
 import torch
 import torch_ac
+import torch_ac.algos.base as _torch_ac_base
+from torch_ac.utils.penv import ParallelEnv
 from torch.utils.tensorboard import SummaryWriter
 
 from model import ACModel
@@ -46,26 +48,36 @@ class Args:
     experiment_root: str = "experiment_root"
 
 
-class _MilestoneCaptureWrapper(gym.Wrapper):
-    """Captures info dicts from terminal steps; torch_ac resets envs automatically."""
+class _InfoCapturingParallelEnv(ParallelEnv):
+    """ParallelEnv that captures terminal step infos in the main process.
 
-    def __init__(self, env):
-        super().__init__(env)
-        self._pending_infos = []
+    torch_ac spawns envs[1:] into subprocesses, so any in-process wrapper
+    around individual envs cannot be read from the main process after the
+    fact.  This subclass intercepts the results of every step() call —
+    which ARE returned to the main process via pipes — and stores terminal
+    infos here, where pop_all_infos() can retrieve them.
+    """
 
-    def reset(self, **kwargs):
-        # do NOT clear _pending_infos here — we pop them explicitly after collect_experiences
-        return self.env.reset(**kwargs)
+    def __init__(self, envs):
+        super().__init__(envs)
+        self._terminal_infos = []
 
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        if terminated or truncated:
-            self._pending_infos.append(info)
-        return obs, reward, terminated, truncated, info
+    def step(self, actions):
+        for local, action in zip(self.locals, actions[1:]):
+            local.send(("step", action))
+        obs0, reward0, terminated0, truncated0, info0 = self.envs[0].step(actions[0])
+        if terminated0 or truncated0:
+            obs0, _ = self.envs[0].reset()
+            self._terminal_infos.append(info0)
+        others = [local.recv() for local in self.locals]
+        for _, _, term_i, trunc_i, info_i in others:
+            if term_i or trunc_i:
+                self._terminal_infos.append(info_i)
+        return zip(*[(obs0, reward0, terminated0, truncated0, info0)] + others)
 
     def pop_all_infos(self):
-        infos = self._pending_infos[:]
-        self._pending_infos.clear()
+        infos = self._terminal_infos[:]
+        self._terminal_infos.clear()
         return infos
 
 
@@ -77,7 +89,6 @@ def _make_env(env_id, seed):
         env = KeyCorridorAchievementWrapper(env)
     else:
         raise ValueError(f"No achievement wrapper for env_id: {env_id}")
-    env = _MilestoneCaptureWrapper(env)
     env.reset(seed=seed)
     return env
 
@@ -124,6 +135,9 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
     acmodel = ACModel(obs_space, envs[0].action_space, use_memory=False, use_text=False)
     acmodel.to(device)
 
+    # Patch ParallelEnv so PPOAlgo uses our info-capturing subclass
+    _torch_ac_base.ParallelEnv = _InfoCapturingParallelEnv
+
     # torch_ac PPO algorithm
     algo = torch_ac.PPOAlgo(
         envs, acmodel, device, args.frames_per_proc,
@@ -155,24 +169,22 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
 
         logs2 = algo.update_parameters(exps)
 
-        # Check for milestone achievements captured during this collect call
+        # Collect all episode infos from this batch via the patched ParallelEnv
+        all_episode_infos = algo.env.pop_all_infos()
+
+        # Check for milestone achievements
         if args.checkpoint_achievements:
-            for env in envs:
-                for info in env.pop_all_infos():
-                    milestone_tracker.check_and_save(
-                        info, acmodel, algo.optimizer, global_step, episode_count
-                    )
-        else:
-            for env in envs:
-                env.pop_all_infos()  # drain the queue to prevent unbounded growth
+            for info in all_episode_infos:
+                milestone_tracker.check_and_save(
+                    info, acmodel, algo.optimizer, global_step, episode_count
+                )
 
         # Count completed episodes and handle should_stop
         stop = False
-        for ret in logs1.get("return_per_episode", []):
+        for info in all_episode_infos:
             episode_count += 1
             if should_stop is not None:
-                ep_solved = float(ret) > 0
-                if should_stop(ep_solved):
+                if should_stop(info):
                     stop = True
 
         # Periodic checkpoint

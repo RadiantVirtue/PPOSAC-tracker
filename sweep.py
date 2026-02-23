@@ -1,8 +1,14 @@
 """Sweep orchestration: train PPO and SAC across DoorKey and KeyCorridor."""
+import os, warnings
+os.environ["PYTHONWARNINGS"] = "ignore::UserWarning"
+warnings.filterwarnings("ignore", category=UserWarning)
+
+
 import time
 
 from ppo.train import Args as PPOArgs, main_ppo
 from sac.train import Args as SACArgs, main_sac
+from shared.achievements import get_achievements_for_env
 
 ENVIRONMENT_FAMILIES = {
     "DoorKey": [
@@ -17,33 +23,43 @@ ENVIRONMENT_FAMILIES = {
     ],
 }
 
-FAMILIES_TO_RUN = list(ENVIRONMENT_FAMILIES.keys())
+FAMILIES_TO_RUN = ["KeyCorridor"]
 ALGORITHMS = ["ppo"]
 
 SOLVE_THRESHOLD = 0.75    # fraction of episodes that must be solved
-EVAL_WINDOW = 100         # rolling window size for solve rate
+EVAL_WINDOW = 100         # episodes per evaluation window
+REQUIRED_CONSECUTIVE = 5  # consecutive passing windows before stopping
 MAX_EPISODES = 100_000    # PPO episode budget
 MAX_TIMESTEPS = 10_000_000  # SAC timestep budget
-SEED = 1
-CHECKPOINT_FREQ = 1000
+SEEDS = [1, 2, 3]
+CONSISTENCY_WINDOW = 5_000  # max spread in convergence episodes across seeds
 EXPERIMENT_ROOT = "sweep_results"
 
 
 class SolveRateTracker:
-    """Tracks rolling solve rate and signals when training threshold is met."""
+    #Tracks rolling solve rate
 
-    def __init__(self, threshold=SOLVE_THRESHOLD, window=EVAL_WINDOW):
+    def __init__(self, env_id, threshold=SOLVE_THRESHOLD, window=EVAL_WINDOW,
+                 required_consecutive=REQUIRED_CONSECUTIVE):
         self.threshold = threshold
         self.window = window
+        self.required_consecutive = required_consecutive
         self._results = []
+        self._consecutive = 0
+        self._final_achievement = get_achievements_for_env(env_id)[-1]
 
-    def update(self, ep_solved):
-        """Call once per episode. Returns True when solve rate criterion is met."""
-        self._results.append(bool(ep_solved))
-        if len(self._results) >= self.window:
+    def update(self, info):
+        """Call once per episode. Returns True when convergence criterion is met."""
+        solved = info.get("achievements", {}).get(self._final_achievement, False)
+        self._results.append(bool(solved))
+        # Evaluate at the end of each complete window
+        if len(self._results) % self.window == 0:
             rate = sum(self._results[-self.window:]) / self.window
-            return rate >= self.threshold
-        return False
+            if rate >= self.threshold:
+                self._consecutive += 1
+            else:
+                self._consecutive = 0
+        return self._consecutive >= self.required_consecutive
 
     @property
     def solve_rate(self):
@@ -64,77 +80,88 @@ def run_sweep():
                 print(f"  {algorithm.upper()} on {env_id}")
                 print(f"{'='*60}")
 
-                tracker = SolveRateTracker()
-                checkpoints_saved = []
+                seed_results = []
 
-                def on_checkpoint_saved(path):
-                    checkpoints_saved.append(path)
+                for seed in SEEDS:
+                    print(f"\n  -- seed={seed} --")
+                    tracker = SolveRateTracker(env_id)
+                    t_start = time.time()
 
-                t_start = time.time()
+                    if algorithm == "ppo":
+                        args = PPOArgs(
+                            env_id=env_id,
+                            total_episodes=MAX_EPISODES,
+                            seed=seed,
+                            checkpoint_freq=0,
+                            checkpoint_achievements=False,
+                            experiment_root=EXPERIMENT_ROOT,
+                            num_procs=16,
+                            frames_per_proc=512,
+                            entropy_coef=0.05,
+                        )
+                        episodes, frames = main_ppo(args, should_stop=tracker.update)
 
-                if algorithm == "ppo":
-                    args = PPOArgs(
-                        env_id=env_id,
-                        total_episodes=MAX_EPISODES,
-                        seed=SEED,
-                        checkpoint_freq=CHECKPOINT_FREQ,
-                        experiment_root=EXPERIMENT_ROOT,
-                        num_procs=16,
-                    )
-                    episodes, frames = main_ppo(
-                        args,
-                        on_checkpoint_saved=on_checkpoint_saved,
-                        should_stop=tracker.update,
-                    )
-                    wall_time = time.time() - t_start
-                    results.append({
-                        "family": family,
-                        "env_id": env_id,
-                        "algorithm": "ppo",
+                    elif algorithm == "sac":
+                        args = SACArgs(
+                            env_id=env_id,
+                            total_timesteps=MAX_TIMESTEPS,
+                            seed=seed,
+                            checkpoint_freq=0,
+                            experiment_root=EXPERIMENT_ROOT,
+                        )
+                        episodes, frames = main_sac(args, should_stop=tracker.update)
+
+                    seed_results.append({
+                        "seed": seed,
                         "episodes": episodes,
                         "frames": frames,
-                        "wall_time_s": round(wall_time, 1),
+                        "wall_time_s": round(time.time() - t_start, 1),
                         "solve_rate": round(tracker.solve_rate, 3),
-                        "solved": tracker.solve_rate >= SOLVE_THRESHOLD,
-                        "checkpoints": len(checkpoints_saved),
+                        "converged": tracker._consecutive >= REQUIRED_CONSECUTIVE,
+                        "consecutive_windows": tracker._consecutive,
                     })
 
-                elif algorithm == "sac":
-                    args = SACArgs(
-                        env_id=env_id,
-                        total_timesteps=MAX_TIMESTEPS,
-                        seed=SEED,
-                        checkpoint_freq=CHECKPOINT_FREQ,
-                        experiment_root=EXPERIMENT_ROOT,
+                # Consistency check across seeds
+                converged = [r for r in seed_results if r["converged"]]
+                all_converged = len(converged) == len(SEEDS)
+                if all_converged:
+                    eps_spread = (
+                        max(r["episodes"] for r in converged)
+                        - min(r["episodes"] for r in converged)
                     )
-                    episodes, steps = main_sac(
-                        args,
-                        on_checkpoint_saved=on_checkpoint_saved,
-                        should_stop=tracker.update,
-                    )
-                    wall_time = time.time() - t_start
-                    results.append({
-                        "family": family,
-                        "env_id": env_id,
-                        "algorithm": "sac",
-                        "episodes": episodes,
-                        "frames": steps,
-                        "wall_time_s": round(wall_time, 1),
-                        "solve_rate": round(tracker.solve_rate, 3),
-                        "solved": tracker.solve_rate >= SOLVE_THRESHOLD,
-                        "checkpoints": len(checkpoints_saved),
-                    })
+                    consistent = eps_spread <= CONSISTENCY_WINDOW
+                else:
+                    eps_spread = None
+                    consistent = False
+
+                results.append({
+                    "family": family,
+                    "env_id": env_id,
+                    "algorithm": algorithm,
+                    "seed_results": seed_results,
+                    "n_converged": len(converged),
+                    "eps_spread": eps_spread,
+                    "consistent": consistent,
+                })
 
     # Print summary table
     print(f"\n{'='*80}")
-    print(f"{'ENV':<40} {'ALG':<6} {'EPS':>8} {'FRAMES':>10} {'RATE':>6} {'SOLVED'}")
+    print(f"{'ENV':<40} {'ALG':<6} {'CONV':>6}  {'SPREAD':>7}  {'CONSISTENT'}")
     print(f"{'-'*80}")
     for r in results:
+        spread_str = f"{r['eps_spread']:>7}" if r["eps_spread"] is not None else "      -"
         print(
             f"{r['env_id']:<40} {r['algorithm']:<6} "
-            f"{r['episodes']:>8} {r['frames']:>10} "
-            f"{r['solve_rate']:>6.3f} {'YES' if r['solved'] else 'no'}"
+            f"{r['n_converged']:>2}/{len(SEEDS)}  {spread_str}  "
+            f"{'YES' if r['consistent'] else 'no'}"
         )
+        for s in r["seed_results"]:
+            converged_tag = "" if s["converged"] else "  [did not converge]"
+            print(
+                f"    seed={s['seed']}: ep={s['episodes']:>7}  "
+                f"rate={s['solve_rate']:.3f}  consec={s['consecutive_windows']}"
+                f"{converged_tag}"
+            )
 
     return results
 
