@@ -93,11 +93,18 @@ def _analyze_ppo(args):
     env.close()
 
     # Step 2: Gradient Computation
-    grad_success, s_mb = compute_group_gradient_with_coherence(
-        agent, success_eps, device=args.device
+    # batch_size scales with group size (analogous to checkpoint_freq = total_episodes // 10)
+    # floor at 5 to avoid degenerate single-episode batches on small groups
+    # _norm: per-layer L2-normalised mean (discarded — not used downstream)
+    # _raw:  true mean gradient (used for opposition score and magnitude)
+    # _mb:   per-batch normalised gradient dicts (used for coherence)
+    s_batch = max(5, len(success_eps) // 10)
+    f_batch = max(5, len(failure_eps) // 10)
+    _norm_s, raw_success, s_mb = compute_group_gradient_with_coherence(
+        agent, success_eps, batch_size=s_batch, device=args.device
     )
-    grad_failure, f_mb = compute_group_gradient_with_coherence(
-        agent, failure_eps, device=args.device
+    _norm_f, raw_failure, f_mb = compute_group_gradient_with_coherence(
+        agent, failure_eps, batch_size=f_batch, device=args.device
     )
 
     # Step 3: Activation Analysis
@@ -117,11 +124,11 @@ def _analyze_ppo(args):
         "threshold_mu": mu,
         "n_success": len(success_eps),
         "n_failure": len(failure_eps),
-        "opposition_score": opposition_score(grad_success, grad_failure),
+        "opposition_score": opposition_score(raw_success, raw_failure),
         "coherence_success": coherence(s_mb),
         "coherence_failure": coherence(f_mb),
-        "gradient_magnitude_success": gradient_magnitude(grad_success),
-        "gradient_magnitude_failure": gradient_magnitude(grad_failure),
+        "gradient_magnitude_success": gradient_magnitude(raw_success),
+        "gradient_magnitude_failure": gradient_magnitude(raw_failure),
         "activation_separation": activation_separation(
             act_results["centroids"]["success"],
             act_results["centroids"]["failure"],

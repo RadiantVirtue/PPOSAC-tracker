@@ -56,14 +56,15 @@ def compute_group_gradient(agent, episodes, device="cuda"):
     return aggregator.l2_normalized()
 
 
-def compute_group_gradient_with_coherence(
-    agent, episodes, batch_size=50, device="cuda"
-):
-    # like compute_group_gradient but also yields minibatch-level gradient vectors for coherence
-    # returns (l2_normalised_mean, list_of_minibatch_gradient_dicts)
+def compute_group_gradient_with_coherence(agent, episodes, batch_size=10, device="cuda"):
+    # Batch-level gradient computation for coherence.
+    # Episodes are grouped into batches of batch_size; each batch produces one
+    # L2-normalised gradient vector (averaging reduces within-batch noise).
+    # Returns (l2_normalised_mean, raw_mean, list_of_batch_gradient_dicts)
+    # raw_mean preserves actual gradient scale for magnitude / opposition score.
     agent.train()
     overall_agg = OnlineGradientAggregator(list(agent.named_parameters()))
-    minibatch_grads = []
+    batch_grads = []
 
     for i in range(0, len(episodes), batch_size):
         batch = episodes[i : i + batch_size]
@@ -83,9 +84,7 @@ def compute_group_gradient_with_coherence(
             advantages = compute_gae(
                 episode.rewards, values.detach(), episode.dones
             ).to(device)
-            advantages = (advantages - advantages.mean()) / (
-                advantages.std() + 1e-8
-            )
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
             pg_loss = -(advantages * log_probs).mean()
             pg_loss.backward()
@@ -94,7 +93,7 @@ def compute_group_gradient_with_coherence(
             overall_agg.accumulate(list(agent.named_parameters()))
             agent.zero_grad()
 
-        minibatch_grads.append(batch_agg.l2_normalized())
+        batch_grads.append(batch_agg.l2_normalized())
 
     agent.eval()
-    return overall_agg.l2_normalized(), minibatch_grads
+    return overall_agg.l2_normalized(), overall_agg.mean_gradient(), batch_grads

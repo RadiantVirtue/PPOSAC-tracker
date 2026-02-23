@@ -162,6 +162,7 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
     global_step = 0
     episode_count = 0
     next_checkpoint_ep = args.checkpoint_freq if args.checkpoint_freq > 0 else None
+    _ckpt_num = 0
 
     while episode_count < args.total_episodes:
         exps, logs1 = algo.collect_experiences()
@@ -189,9 +190,10 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
 
         # Periodic checkpoint
         if next_checkpoint_ep is not None and episode_count >= next_checkpoint_ep:
+            _ckpt_num += 1
             path = (
                 f"{args.experiment_root}/checkpoints/ppo/"
-                f"periodic_{episode_count // 1000}k_episodes.pt"
+                f"periodic_{_ckpt_num:02d}_{episode_count // 1000}k_ep{episode_count}.pt"
             )
             save_checkpoint_ppo(acmodel, algo.optimizer, global_step, episode_count, path)
             if on_checkpoint_saved:
