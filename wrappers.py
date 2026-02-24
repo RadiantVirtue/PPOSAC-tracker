@@ -33,16 +33,21 @@ class DoorKeyAchievementWrapper(gym.Wrapper):
 
         # Detect key pickup
         if inner.carrying is not None and inner.carrying.type == 'key':
-            self._ach["found_key"] = True
+            self._ach["found_key"] = True  # fallback: can't carry without finding
             self._ach["picked_up_key"] = True
 
-        # Scan grid for door
+        # Scan grid for key visibility and door
         door_pos = None
         door_is_open = False
         ax, ay = inner.agent_pos
         for j in range(inner.grid.height):
             for i in range(inner.grid.width):
                 cell = inner.grid.get(i, j)
+                if cell is None:
+                    continue
+                if cell.type == 'key' and not self._ach["found_key"]:
+                    if abs(ax - i) + abs(ay - j) <= 2:
+                        self._ach["found_key"] = True
                 if cell is not None and cell.type == 'door':
                     door_pos = (i, j)
                     door_is_open = cell.is_open
@@ -102,13 +107,13 @@ class KeyCorridorAchievementWrapper(gym.Wrapper):
         # Detect what the agent is carrying
         if inner.carrying is not None:
             if inner.carrying.type == 'key':
-                self._ach["found_key"] = True
+                self._ach["found_key"] = True  # fallback: can't carry without finding
                 self._ach["picked_up_key"] = True
             elif inner.carrying.type == 'ball':
                 self._ach["found_target"] = True
                 self._ach["picked_up_target"] = True
 
-        # Scan grid for doors and balls
+        # Scan grid for keys, doors, and balls
         ax, ay = inner.agent_pos
         curr_open_doors = set()
         for j in range(inner.grid.height):
@@ -116,7 +121,10 @@ class KeyCorridorAchievementWrapper(gym.Wrapper):
                 cell = inner.grid.get(i, j)
                 if cell is None:
                     continue
-                if cell.type == 'door':
+                if cell.type == 'key' and not self._ach["found_key"]:
+                    if abs(ax - i) + abs(ay - j) <= 2:
+                        self._ach["found_key"] = True
+                elif cell.type == 'door':
                     if abs(ax - i) + abs(ay - j) <= 1:
                         self._ach["reached_door"] = True
                     if cell.is_open:

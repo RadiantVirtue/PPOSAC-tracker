@@ -1,5 +1,6 @@
 import torch
 import torch.distributions
+from tqdm import tqdm
 
 from shared.gradient_utils import OnlineGradientAggregator
 
@@ -56,7 +57,7 @@ def compute_group_gradient(agent, episodes, device="cuda"):
     return aggregator.l2_normalized()
 
 
-def compute_group_gradient_with_coherence(agent, episodes, batch_size=10, device="cuda"):
+def compute_group_gradient_with_coherence(agent, episodes, batch_size=10, device="cuda", desc="Grads"):
     # Batch-level gradient computation for coherence.
     # Episodes are grouped into batches of batch_size; each batch produces one
     # L2-normalised gradient vector (averaging reduces within-batch noise).
@@ -66,7 +67,8 @@ def compute_group_gradient_with_coherence(agent, episodes, batch_size=10, device
     overall_agg = OnlineGradientAggregator(list(agent.named_parameters()))
     batch_grads = []
 
-    for i in range(0, len(episodes), batch_size):
+    batches = range(0, len(episodes), batch_size)
+    for i in tqdm(batches, desc=desc, unit="batch"):
         batch = episodes[i : i + batch_size]
         batch_agg = OnlineGradientAggregator(list(agent.named_parameters()))
 

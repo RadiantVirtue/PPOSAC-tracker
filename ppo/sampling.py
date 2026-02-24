@@ -90,7 +90,12 @@ def evaluate_frozen_policy(
     return episodes, eps_scores
 
 
-# Partition episodes into success / failure using dynamic threshold
-def partition(episodes, eps_scores):
-    success, failure, mu = partition_episodes(episodes, eps_scores)
-    return success, failure, mu
+# Partition episodes into success / failure.
+# In percentile mode, raw episode returns (sum of shaped rewards) are used as
+# the ranking score rather than EPS, and the middle episodes are discarded.
+def partition(episodes, eps_scores, mode="eps", percentile_x=25):
+    if mode == "percentile":
+        scores = [ep.rewards.sum().item() for ep in episodes]
+    else:
+        scores = eps_scores
+    return partition_episodes(episodes, scores, mode=mode, percentile_x=percentile_x)

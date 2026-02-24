@@ -8,16 +8,20 @@ import numpy as np
 import torch
 
 
+MIN_FAILURE_FOR_OPPOSITION = 10
+
+
 def analyze_checkpoint(algorithm, checkpoint_path, experiment_root,
-                       env_id="MiniGrid-DoorKey-8x8-v0", n_episodes=100,
-                       device="cuda", reason=""):
-    """Analyse a single checkpoint (gradients + activations + RSA)."""
+                       env_id="MiniGrid-DoorKey-8x8-v0", n_episodes=500,
+                       device="cuda", reason="", run_rsa=True,
+                       split_mode="eps", percentile_x=25):
     from shared.storage import save_analysis_results
 
     args = argparse.Namespace(
         algorithm=algorithm, checkpoint_path=checkpoint_path,
         experiment_root=experiment_root, env_id=env_id,
         n_episodes=n_episodes, device=device, reason=reason,
+        run_rsa=run_rsa, split_mode=split_mode, percentile_x=percentile_x,
     )
 
     if algorithm == "ppo":
@@ -45,14 +49,19 @@ def main():
     parser.add_argument("--checkpoint_path", required=True)
     parser.add_argument("--experiment_root", required=True)
     parser.add_argument("--env_id", default="MiniGrid-DoorKey-8x8-v0")
-    parser.add_argument("--n_episodes", type=int, default=100)
+    parser.add_argument("--n_episodes", type=int, default=500)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--reason", default="")
+    parser.add_argument("--no_rsa", action="store_true")
+    parser.add_argument("--split_mode", default="eps", choices=["eps", "percentile"])
+    parser.add_argument("--percentile_x", type=int, default=25)
     args = parser.parse_args()
 
     analyze_checkpoint(
         args.algorithm, args.checkpoint_path, args.experiment_root,
         args.env_id, args.n_episodes, args.device, args.reason,
+        run_rsa=not args.no_rsa,
+        split_mode=args.split_mode, percentile_x=args.percentile_x,
     )
 
 
@@ -77,11 +86,20 @@ def _analyze_ppo(args):
         args.checkpoint_path, args.env_id,
         n_episodes=args.n_episodes, device=args.device,
     )
-    success_eps, failure_eps, mu = partition(episodes, eps_scores)
-    print(
-        f"  Threshold mu={mu:.3f}, "
-        f"success={len(success_eps)}, failure={len(failure_eps)}"
+    success_eps, failure_eps, threshold = partition(
+        episodes, eps_scores,
+        mode=args.split_mode, percentile_x=args.percentile_x,
     )
+    if isinstance(threshold, tuple):
+        print(
+            f"  Threshold lower={threshold[0]:.3f}, upper={threshold[1]:.3f}, "
+            f"success={len(success_eps)}, failure={len(failure_eps)}"
+        )
+    else:
+        print(
+            f"  Threshold mu={threshold:.3f}, "
+            f"success={len(success_eps)}, failure={len(failure_eps)}"
+        )
 
     if len(success_eps) == 0 or len(failure_eps) == 0:
         print("  Skipping: one group is empty")
@@ -101,10 +119,10 @@ def _analyze_ppo(args):
     s_batch = max(5, len(success_eps) // 10)
     f_batch = max(5, len(failure_eps) // 10)
     _norm_s, raw_success, s_mb = compute_group_gradient_with_coherence(
-        agent, success_eps, batch_size=s_batch, device=args.device
+        agent, success_eps, batch_size=s_batch, device=args.device, desc="Grads [success]"
     )
     _norm_f, raw_failure, f_mb = compute_group_gradient_with_coherence(
-        agent, failure_eps, batch_size=f_batch, device=args.device
+        agent, failure_eps, batch_size=f_batch, device=args.device, desc="Grads [failure]"
     )
 
     # Step 3: Activation Analysis
@@ -113,18 +131,28 @@ def _analyze_ppo(args):
     )
 
     # Step 4: RSA
-    all_obs = torch.cat([ep.observations for ep in episodes]).numpy()
-    rsa_result = run_rsa_for_checkpoint(
-        agent, all_obs, "actor.0", args.device,
-        stimulus_set=stimulus_set, gt_groups=gt_groups,
-    )
+    if args.run_rsa:
+        all_obs = torch.cat([ep.observations for ep in episodes]).numpy()
+        rsa_result = run_rsa_for_checkpoint(
+            agent, all_obs, "actor.0", args.device,
+            stimulus_set=stimulus_set, gt_groups=gt_groups,
+        )
+    else:
+        rsa_result = None
 
     return {
         "episode": episode,
-        "threshold_mu": mu,
+        "split_mode": args.split_mode,
+        "percentile_x": args.percentile_x,
+        "threshold_mu":    threshold if isinstance(threshold, float) else None,
+        "threshold_lower": threshold[0] if isinstance(threshold, tuple) else None,
+        "threshold_upper": threshold[1] if isinstance(threshold, tuple) else None,
         "n_success": len(success_eps),
         "n_failure": len(failure_eps),
-        "opposition_score": opposition_score(raw_success, raw_failure),
+        "opposition_score": (
+            opposition_score(raw_success, raw_failure)
+            if len(failure_eps) >= MIN_FAILURE_FOR_OPPOSITION else None
+        ),
         "coherence_success": coherence(s_mb),
         "coherence_failure": coherence(f_mb),
         "gradient_magnitude_success": gradient_magnitude(raw_success),
