@@ -19,18 +19,19 @@ class Args:
     env_id: str = "MiniGrid-KeyCorridorS3R3-v0"
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
     total_episodes: int = 50000
-    checkpoint_freq: Optional[int] = 500
+    checkpoint_freq: Optional[int] = 1000
     checkpoint_achievements: bool = False
     num_procs: int = 16
     frames_per_proc: int = 256
     entropy_coef: float = 0.02
-    experiment_root: str = "percentile_test"
+    experiment_root: str = "Proof-of-Concept-Runs"
     n_eval_episodes: int = 500
     run_rsa: bool = True
     split_mode: str = "percentile" #percentile or eps
     percentile_x: int = 25
     auto_push: bool = True
     device: str = "cuda"
+    analyze_every: int = 1  # analyze every N-th saved checkpoint (1 = all)
 
 
 # ── label helpers ────────────────────────────────────────────────────────────
@@ -220,8 +221,12 @@ def _run_seed(args, seed: int, freq: int) -> tuple:
             seen.add(p)
             unique_paths.append(p)
 
-    print(f"=== Analysing {len(unique_paths)} checkpoint(s) for seed {seed} ===\n")
-    for path in unique_paths:
+    paths_to_analyze = unique_paths[::args.analyze_every]
+    if unique_paths and unique_paths[-1] not in paths_to_analyze:
+        paths_to_analyze.append(unique_paths[-1])
+
+    print(f"=== Analysing {len(paths_to_analyze)}/{len(unique_paths)} checkpoint(s) for seed {seed} ===\n")
+    for path in paths_to_analyze:
         label = label_from_path(path)
         print(f"--- {label} ---")
         analyze_checkpoint(
@@ -236,7 +241,7 @@ def _run_seed(args, seed: int, freq: int) -> tuple:
         )
 
     checkpoint_results = []
-    for path in unique_paths:
+    for path in paths_to_analyze:
         basename = os.path.splitext(os.path.basename(path))[0]
         json_path = os.path.join(seed_root, "analysis_logs", "ppo", f"{basename}.json")
         if os.path.exists(json_path):
