@@ -21,7 +21,7 @@ ENVIRONMENT_FAMILIES = {
     ],
 }
 
-FAMILIES_TO_RUN = ["KeyCorridor"]
+FAMILIES_TO_RUN = ["DoorKey"]
 ALGORITHMS = ["ppo"]
 
 SOLVE_THRESHOLD = 0.75    # fraction of episodes that must be solved

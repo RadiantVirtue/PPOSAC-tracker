@@ -13,10 +13,16 @@ import numpy as np
 #                       tuple contains the two return cutoffs.
 def partition_episodes(episodes, scores, mode="eps", percentile_x=25):
     if mode == "percentile":
-        lower = float(np.percentile(scores, percentile_x))
-        upper = float(np.percentile(scores, 100 - percentile_x))
-        success = [ep for ep, s in zip(episodes, scores) if s >= upper]
-        failure = [ep for ep, s in zip(episodes, scores) if s <= lower]
+        scores_arr = np.array(scores)
+        sorted_idx = np.argsort(scores_arr, kind="stable")
+        n = len(episodes)
+        n_each = max(1, int(n * percentile_x / 100))
+        failure_idx = set(sorted_idx[:n_each])
+        success_idx = set(sorted_idx[n - n_each:])
+        failure = [ep for i, ep in enumerate(episodes) if i in failure_idx]
+        success = [ep for i, ep in enumerate(episodes) if i in success_idx]
+        lower = float(scores_arr[sorted_idx[n_each - 1]])
+        upper = float(scores_arr[sorted_idx[n - n_each]])
         return success, failure, (lower, upper)
     else:
         mu = float(np.mean(scores))
