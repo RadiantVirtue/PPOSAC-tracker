@@ -25,7 +25,11 @@ class Args:
     frames_per_proc: int = 128
     entropy_coef: float = 0.01
     experiment_root: str = "train_analysis_results"
-    n_eval_episodes: int = 100
+    n_eval_episodes: int = 500
+    run_rsa: bool = True
+    split_mode: str = "eps"
+    percentile_x: int = 25
+    auto_push: bool = True
     device: str = "cuda"
 
 
@@ -69,10 +73,6 @@ def _fi(val):
 # ── report generation ─────────────────────────────────────────────────────────
 
 def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment_root):
-    """
-    checkpoint_results: list of (label: str, result: dict)
-    Returns a markdown string.
-    """
     lines = []
 
     # ── header ────────────────────────────────────────────────────────────────
@@ -116,11 +116,19 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
     # ── per-checkpoint sections ───────────────────────────────────────────────
     for label, r in checkpoint_results:
         lines += ["---", "", f"## {label}", ""]
+        if r.get("threshold_mu") is not None:
+            threshold_line = f"**Threshold μ:** {_f(r.get('threshold_mu'), 3)}"
+        else:
+            px = r.get("percentile_x", 25)
+            threshold_line = (
+                f"**Threshold:** bottom {px}% (≤ {_f(r.get('threshold_lower'), 3)}) | "
+                f"top {px}% (≥ {_f(r.get('threshold_upper'), 3)})"
+            )
         lines += [
             f"**Episodes:** {_fi(r.get('episode'))}  ",
             f"**Success:** {_fi(r.get('n_success'))}  ",
             f"**Failure:** {_fi(r.get('n_failure'))}  ",
-            f"**Threshold μ:** {_f(r.get('threshold_mu'), 3)}",
+            threshold_line,
             "",
         ]
 
@@ -177,9 +185,9 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
 
 # ── per-seed training + analysis ─────────────────────────────────────────────
 
-def _run_seed(args, seed: int, freq: int) -> list:
+def _run_seed(args, seed: int, freq: int) -> tuple:
     """Train PPO + analyse all checkpoints for one seed.
-    Returns checkpoint_results sorted by episode count."""
+    Returns (checkpoint_results, report_path_or_None)."""
     seed_root = os.path.join(args.experiment_root, f"seed_{seed}")
 
     ppo_args = PPOArgs(
@@ -222,6 +230,9 @@ def _run_seed(args, seed: int, freq: int) -> list:
             n_episodes=args.n_eval_episodes,
             device=args.device,
             reason=label,
+            run_rsa=args.run_rsa,
+            split_mode=args.split_mode,
+            percentile_x=args.percentile_x,
         )
 
     checkpoint_results = []
@@ -246,8 +257,9 @@ def _run_seed(args, seed: int, freq: int) -> list:
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report_md)
         print(f"Per-seed report saved: {report_path}")
+        return checkpoint_results, report_path
 
-    return checkpoint_results
+    return checkpoint_results, None
 
 
 # ── cross-seed averaged report ────────────────────────────────────────────────
@@ -349,6 +361,40 @@ def generate_averaged_report(
     return "\n".join(lines)
 
 
+# ── git push ──────────────────────────────────────────────────────────────────
+
+def _push_reports(report_paths: list, env_id: str):
+    """Stage the given report files, commit, and push to remote."""
+    import subprocess
+
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+
+    def _run(cmd):
+        return subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True)
+
+    add = _run(["git", "add", "--"] + report_paths)
+    if add.returncode != 0:
+        print(f"[push] git add failed:\n{add.stderr}")
+        return
+
+    status = _run(["git", "status", "--porcelain"])
+    if not status.stdout.strip():
+        print("[push] Nothing new to commit — remote already up to date.")
+        return
+
+    commit = _run(["git", "commit", "-m", f"auto: analysis reports [{env_id}]"])
+    if commit.returncode != 0:
+        print(f"[push] git commit failed:\n{commit.stderr}")
+        return
+
+    push = _run(["git", "push"])
+    if push.returncode != 0:
+        print(f"[push] git push failed:\n{push.stderr}")
+        return
+
+    print(f"[push] Reports pushed to remote ({len(report_paths)} file(s)).")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -357,12 +403,15 @@ def main():
     freq = args.checkpoint_freq if args.checkpoint_freq is not None else (args.total_episodes // 10)
 
     all_seed_results: dict[int, list] = {}
+    report_paths: list[str] = []
     for seed in args.seeds:
-        results = _run_seed(args, seed, freq)
+        results, rpath = _run_seed(args, seed, freq)
         if results:
             all_seed_results[seed] = results
         else:
             print(f"[warn] Seed {seed} produced no results — skipped in averaged report")
+        if rpath:
+            report_paths.append(rpath)
 
     if not all_seed_results:
         print("No results across any seed.")
@@ -375,6 +424,10 @@ def main():
     with open(avg_path, "w", encoding="utf-8") as f:
         f.write(avg_md)
     print(f"\nAveraged report saved: {avg_path}")
+    report_paths.append(avg_path)
+
+    if args.auto_push and report_paths:
+        _push_reports(report_paths, args.env_id)
 
 
 if __name__ == "__main__":
