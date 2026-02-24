@@ -46,7 +46,7 @@ class DoorKeyAchievementWrapper(gym.Wrapper):
                 if cell is None:
                     continue
                 if cell.type == 'key' and not self._ach["found_key"]:
-                    if abs(ax - i) + abs(ay - j) <= 2:
+                    if ax == i and ay == j:
                         self._ach["found_key"] = True
                 if cell is not None and cell.type == 'door':
                     door_pos = (i, j)
@@ -122,7 +122,7 @@ class KeyCorridorAchievementWrapper(gym.Wrapper):
                 if cell is None:
                     continue
                 if cell.type == 'key' and not self._ach["found_key"]:
-                    if abs(ax - i) + abs(ay - j) <= 2:
+                    if ax == i and ay == j:
                         self._ach["found_key"] = True
                 elif cell.type == 'door':
                     if abs(ax - i) + abs(ay - j) <= 1:

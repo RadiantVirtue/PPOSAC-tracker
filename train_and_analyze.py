@@ -18,16 +18,16 @@ from shared.storage import load_analysis_results
 class Args:
     env_id: str = "MiniGrid-KeyCorridorS3R3-v0"
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
-    total_episodes: int = 30000
-    checkpoint_freq: Optional[int] = None
+    total_episodes: int = 50000
+    checkpoint_freq: Optional[int] = 500
     checkpoint_achievements: bool = False
     num_procs: int = 16
-    frames_per_proc: int = 128
-    entropy_coef: float = 0.01
-    experiment_root: str = "train_analysis_results"
+    frames_per_proc: int = 256
+    entropy_coef: float = 0.02
+    experiment_root: str = "percentile_test"
     n_eval_episodes: int = 500
     run_rsa: bool = True
-    split_mode: str = "eps"
+    split_mode: str = "percentile" #percentile or eps
     percentile_x: int = 25
     auto_push: bool = True
     device: str = "cuda"
