@@ -1,4 +1,4 @@
-"""Analyze checkpoints in an experiment folder, sampling every N-th checkpoint.
+"""Analyze checkpoints in an experiment folder within an episode range.
 
 Expects the structure:
     experiment_root/
@@ -25,10 +25,13 @@ from train_and_analyze import generate_report, generate_averaged_report, label_f
 @dataclass
 class Args:
     # Folder containing seed_N subdirs (or checkpoints directly)
-    experiment_root: str = "percentile_test"
+    experiment_root: str = "Proof-of-Concept-Runs"
 
-    # Analyze every N-th checkpoint per seed (1 = all)
-    every: int = 5
+    # Only analyze checkpoints with episode number >= from_ep (0 = no lower limit)
+    from_ep: int = 0
+
+    # Only analyze checkpoints with episode number <= to_ep (-1 = no upper limit)
+    to_ep: int = -1
 
     # Algorithm
     algo: str = "ppo"
@@ -55,7 +58,7 @@ class Args:
     # Write per-seed and averaged markdown reports after analysis
     report: bool = True
 
-    # Push generated reports to remote git repo when done
+    # Push generated reports and JSONs to remote git repo when done
     auto_push: bool = True
 
 
@@ -77,7 +80,19 @@ def _find_seed_dirs(root: str) -> list:
     return [(None, root)]
 
 
-def _find_checkpoints(seed_dir: str, algo: str) -> list[str]:
+def _ep(p):
+    """Extract episode number from a checkpoint filename."""
+    name = os.path.basename(p)
+    m = re.search(r"ep(\d+)", name)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"(\d+)k", name)
+    if m:
+        return int(m.group(1)) * 1000
+    return 0
+
+
+def _find_checkpoints(seed_dir: str, algo: str) -> list:
     """Return checkpoint paths sorted by episode number."""
     ckpt_dir = os.path.join(seed_dir, "checkpoints", algo)
     if not os.path.isdir(ckpt_dir):
@@ -87,18 +102,17 @@ def _find_checkpoints(seed_dir: str, algo: str) -> list[str]:
         for f in os.listdir(ckpt_dir)
         if f.endswith(".pt")
     ]
-
-    def _ep(p):
-        name = os.path.basename(p)
-        m = re.search(r"ep(\d+)", name)
-        if m:
-            return int(m.group(1))
-        m = re.search(r"(\d+)k", name)
-        if m:
-            return int(m.group(1)) * 1000
-        return 0
-
     return sorted(paths, key=_ep)
+
+
+def _in_range(path, from_ep, to_ep):
+    """Return True if the checkpoint's episode falls within [from_ep, to_ep]."""
+    ep = _ep(path)
+    if ep < from_ep:
+        return False
+    if to_ep >= 0 and ep > to_ep:
+        return False
+    return True
 
 
 def _already_analyzed(checkpoint_path: str, seed_dir: str, algo: str) -> bool:
@@ -132,12 +146,13 @@ def main():
             print(f"  [seed {seed}] No checkpoints found in {seed_dir}/checkpoints/{args.algo}/")
             continue
 
-        # Sample every N-th, always include the final checkpoint
-        selected = checkpoints[::args.every]
+        # Filter to the episode range, always include the final checkpoint
+        selected = [p for p in checkpoints if _in_range(p, args.from_ep, args.to_ep)]
         if checkpoints[-1] not in selected:
             selected.append(checkpoints[-1])
 
-        print(f"\n=== Seed {seed} — {len(selected)}/{len(checkpoints)} checkpoint(s) selected ===")
+        range_desc = f"ep {args.from_ep}–{'∞' if args.to_ep < 0 else args.to_ep}"
+        print(f"\n=== Seed {seed} — {len(selected)}/{len(checkpoints)} checkpoint(s) in range [{range_desc}] ===")
 
         for path in selected:
             label = label_from_path(path)
@@ -155,6 +170,11 @@ def main():
                 split_mode=args.split_mode,
                 percentile_x=args.percentile_x,
             )
+            # Track the JSON so it gets pushed alongside reports
+            basename = os.path.splitext(os.path.basename(path))[0]
+            json_path = os.path.join(seed_dir, "analysis_logs", args.algo, f"{basename}.json")
+            if os.path.exists(json_path):
+                report_paths.append(json_path)
 
         # Collect results for reports
         checkpoint_results = []
