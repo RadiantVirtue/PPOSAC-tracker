@@ -31,7 +31,7 @@ class Args:
     from_ep: int = 0
 
     # Only analyze checkpoints with episode number <= to_ep (-1 = no upper limit)
-    to_ep: int = -1
+    to_ep: int = 10000
 
     # Algorithm
     algo: str = "ppo"
@@ -188,8 +188,10 @@ def main():
             all_seed_results[seed] = checkpoint_results
 
         if args.report and checkpoint_results:
-            seed_label = f"seed_{seed}" if seed is not None else "run"
             safe_env = args.env_id.replace("/", "_").replace("\\", "_")
+            from_k = args.from_ep // 1000
+            to_k = args.to_ep // 1000 if args.to_ep >= 0 else "end"
+            seed_label = f"{seed}-{from_k}k-{to_k}k" if seed is not None else f"run-{from_k}k-{to_k}k"
             md = generate_report(
                 checkpoint_results, args.env_id, seed,
                 checkpoint_results[-1][1].get("episode", 0),

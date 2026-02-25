@@ -75,6 +75,7 @@ def _analyze_ppo(args):
         coherence,
         gradient_magnitude,
         activation_separation,
+        centroid_cosine_distance,
     )
     from analysis.run_rsa import run_rsa_for_checkpoint
     from shared.rsa import get_stimulus_config
@@ -161,6 +162,10 @@ def _analyze_ppo(args):
             act_results["centroids"]["success"],
             act_results["centroids"]["failure"],
         ),
+        "activation_cosine_distance": centroid_cosine_distance(
+            act_results["centroids"]["success"],
+            act_results["centroids"]["failure"],
+        ),
         "cluster_stats": act_results["cluster_stats"],
         "rsa": rsa_result,
     }
@@ -183,6 +188,7 @@ def _analyze_sac(args):
         opposition_score,
         gradient_magnitude,
         activation_separation,
+        centroid_cosine_distance,
     )
     from analysis.run_rsa import run_rsa_for_checkpoint
     from shared.rsa import get_stimulus_config
@@ -252,6 +258,9 @@ def _analyze_sac(args):
         "gradient_magnitude_success": gradient_magnitude(grad_success),
         "gradient_magnitude_failure": gradient_magnitude(grad_failure),
         "activation_separation": activation_separation(
+            centroids["success"], centroids["failure"]
+        ),
+        "activation_cosine_distance": centroid_cosine_distance(
             centroids["success"], centroids["failure"]
         ),
         "cluster_stats": cluster_stats,

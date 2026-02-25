@@ -17,6 +17,7 @@ from shared.activation_utils import (
 )
 from shared.metrics import (
     activation_separation,
+    centroid_cosine_distance,
     gradient_magnitude,
     opposition_score,
 )
@@ -106,6 +107,9 @@ def analyze_checkpoint(
         "gradient_magnitude_success": gradient_magnitude(grad_success),
         "gradient_magnitude_failure": gradient_magnitude(grad_failure),
         "activation_separation": activation_separation(
+            centroids["success"], centroids["failure"]
+        ),
+        "activation_cosine_distance": centroid_cosine_distance(
             centroids["success"], centroids["failure"]
         ),
         "cluster_stats": cluster_stats,

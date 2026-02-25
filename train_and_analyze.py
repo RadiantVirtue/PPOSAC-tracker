@@ -18,7 +18,7 @@ from shared.storage import load_analysis_results
 class Args:
     env_id: str = "MiniGrid-KeyCorridorS3R3-v0"
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
-    total_episodes: int = 50000
+    total_episodes: int = 100000
     checkpoint_freq: Optional[int] = 1000
     checkpoint_achievements: bool = False
     num_procs: int = 16
@@ -31,7 +31,7 @@ class Args:
     percentile_x: int = 25
     auto_push: bool = True
     device: str = "cuda"
-    analyze_every: int = 1  # analyze every N-th saved checkpoint (1 = all)
+    analyze_every: int =  5 # analyze every N-th saved checkpoint
 
 
 # ── label helpers ────────────────────────────────────────────────────────────

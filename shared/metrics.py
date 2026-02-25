@@ -37,6 +37,13 @@ def activation_separation(centroid_success, centroid_failure):
     return float(np.linalg.norm(centroid_success - centroid_failure))
 
 
+# cosine distance (1 - cosine similarity) between Success / Failure activation centroids
+def centroid_cosine_distance(centroid_success, centroid_failure):
+    s = centroid_success / (np.linalg.norm(centroid_success) + 1e-8)
+    f = centroid_failure / (np.linalg.norm(centroid_failure) + 1e-8)
+    return float(1.0 - np.dot(s, f))
+
+
 # spearman correlation between upper triangles of model and GT RDMs
 def rsa_alignment(model_rdm, ground_truth_rdm):
     idx = np.triu_indices(model_rdm.shape[0], k=1)
