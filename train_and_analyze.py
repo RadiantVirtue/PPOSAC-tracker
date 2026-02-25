@@ -93,8 +93,8 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
         "## Summary",
         "",
         "| Checkpoint | Episodes | Opp. Score | Coh. (S) | Coh. (F) "
-        "| Grad Mag (S) | Grad Mag (F) | Act. Sep. | RSA Align. |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Grad Mag (S) | Grad Mag (F) | Act. Sep. | Act. Cos. Dist. | RSA Align. |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for label, r in checkpoint_results:
         rsa_align = None
@@ -110,6 +110,7 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             f"| {_f(r.get('gradient_magnitude_success'))} "
             f"| {_f(r.get('gradient_magnitude_failure'))} "
             f"| {_f(r.get('activation_separation'))} "
+            f"| {_f(r.get('activation_cosine_distance'))} "
             f"| {_f(rsa_align)} |"
         )
     lines += [""]
@@ -153,6 +154,7 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             "| Metric | Value |",
             "|---|---|",
             f"| Activation Separation | {_f(r.get('activation_separation'))} |",
+            f"| Cosine Distance | {_f(r.get('activation_cosine_distance'))} |",
             f"| Clusters | {_fi(cs.get('n_clusters'))} |",
             f"| Noise Fraction | {_f(cs.get('noise_fraction'))} |",
             "",
@@ -277,6 +279,7 @@ _AVG_METRICS = [
     ("gradient_magnitude_success",  "Grad Mag (S)"),
     ("gradient_magnitude_failure",  "Grad Mag (F)"),
     ("activation_separation",       "Act. Sep."),
+    ("activation_cosine_distance",  "Act. Cos. Dist."),
 ]
 
 

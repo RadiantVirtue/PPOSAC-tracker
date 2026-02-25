@@ -1,33 +1,33 @@
 # Training & Analysis Report
 
-**Environment:** `MiniGrid-KeyCorridorS3R3-v0`  
-**Seed:** 5  
-**Total episodes:** 100,020  
-**Experiment root:** `Proof-of-Concept-Runs\seed_5`  
+**Environment:** `MiniGrid-KeyCorridorS3R3-v0`
+**Seed:** 5
+**Total episodes:** 100,020
+**Experiment root:** `Proof-of-Concept-Runs\seed_5`
 **Generated:** 2026-02-25 13:20
 
 ## Summary
 
-| Checkpoint | Episodes | Opp. Score | Coh. (S) | Coh. (F) | Grad Mag (S) | Grad Mag (F) | Act. Sep. | RSA Align. |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Checkpoint 1 — 1k (1010 episodes) | 1,010 | 0.8700 | 0.4090 | 0.3122 | 0.1248 | 0.0785 | 0.0619 | {'correlation': 0.4140393356054126, 'p_value': 0.41443008250091623} |
-| Checkpoint 2 — 2k (2008 episodes) | 2,008 | 0.8784 | 0.2775 | 0.2924 | 0.0777 | 0.0768 | 0.0452 | — |
-| Checkpoint 3 — 3k (3003 episodes) | 3,003 | 0.9404 | 0.2825 | 0.2880 | 0.1014 | 0.0920 | 0.0318 | — |
-| Checkpoint 4 — 4k (4000 episodes) | 4,000 | 0.8845 | 0.1848 | 0.2059 | 0.0777 | 0.0790 | 0.0393 | — |
-| Checkpoint 5 — 5k (5007 episodes) | 5,007 | 0.9283 | 0.2974 | 0.3404 | 0.0968 | 0.0957 | 0.0589 | — |
-| Checkpoint 6 — 6k (6006 episodes) | 6,006 | 0.8048 | 0.3757 | 0.3400 | 0.1622 | 0.1215 | 0.0872 | {'correlation': 0.2070196678027063, 'p_value': 0.69390663403457} |
-| Checkpoint 7 — 7k (7001 episodes) | 7,001 | 0.7387 | 0.2182 | 0.3190 | 0.1948 | 0.1063 | 0.2369 | — |
-| Checkpoint 8 — 8k (8009 episodes) | 8,009 | 0.6782 | 0.2091 | 0.0777 | 0.2689 | 0.0836 | 0.8688 | — |
-| Checkpoint 9 — 9k (9014 episodes) | 9,014 | 0.6189 | 0.2749 | 0.1921 | 0.3973 | 0.1217 | 1.3195 | — |
-| Checkpoint 100 — 100k (100020 episodes) | 100,020 | 0.5307 | 0.1765 | 0.1937 | 0.2336 | 0.2315 | 5.8891 | — |
+| Checkpoint | Episodes | Opp. Score | Coh. (S) | Coh. (F) | Grad Mag (S) | Grad Mag (F) | Act. Sep. | Act. Cos. Dist. | RSA Align. |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Checkpoint 1 — 1k (1010 episodes) | 1,010 | 0.8700 | 0.4090 | 0.3122 | 0.1248 | 0.0785 | 0.0619 | — | {'correlation': 0.4140393356054126, 'p_value': 0.41443008250091623} |
+| Checkpoint 2 — 2k (2008 episodes) | 2,008 | 0.8784 | 0.2775 | 0.2924 | 0.0777 | 0.0768 | 0.0452 | 0.0317 | — |
+| Checkpoint 3 — 3k (3003 episodes) | 3,003 | 0.9404 | 0.2825 | 0.2880 | 0.1014 | 0.0920 | 0.0318 | 0.0203 | — |
+| Checkpoint 4 — 4k (4000 episodes) | 4,000 | 0.8845 | 0.1848 | 0.2059 | 0.0777 | 0.0790 | 0.0393 | 0.0250 | — |
+| Checkpoint 5 — 5k (5007 episodes) | 5,007 | 0.9283 | 0.2974 | 0.3404 | 0.0968 | 0.0957 | 0.0589 | 0.0555 | — |
+| Checkpoint 6 — 6k (6006 episodes) | 6,006 | 0.8048 | 0.3757 | 0.3400 | 0.1622 | 0.1215 | 0.0872 | — | {'correlation': 0.2070196678027063, 'p_value': 0.69390663403457} |
+| Checkpoint 7 — 7k (7001 episodes) | 7,001 | 0.7387 | 0.2182 | 0.3190 | 0.1948 | 0.1063 | 0.2369 | 0.0492 | — |
+| Checkpoint 8 — 8k (8009 episodes) | 8,009 | 0.6782 | 0.2091 | 0.0777 | 0.2689 | 0.0836 | 0.8688 | 0.5087 | — |
+| Checkpoint 9 — 9k (9014 episodes) | 9,014 | 0.6189 | 0.2749 | 0.1921 | 0.3973 | 0.1217 | 1.3195 | 0.5902 | — |
+| Checkpoint 100 — 100k (100020 episodes) | 100,020 | 0.5307 | 0.1765 | 0.1937 | 0.2336 | 0.2315 | 5.8891 | — | — |
 
 ---
 
 ## Checkpoint 1 — 1k (1010 episodes)
 
-**Episodes:** 1,010  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 1,010
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 0.400)
 
 ### Gradient Metrics
@@ -45,6 +45,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.0619 |
+| Cosine Distance | — |
 | Clusters | 2,127 |
 | Noise Fraction | 0.0349 |
 
@@ -67,9 +68,9 @@
 
 ## Checkpoint 2 — 2k (2008 episodes)
 
-**Episodes:** 2,008  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 2,008
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 0.400)
 
 ### Gradient Metrics
@@ -87,6 +88,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.0452 |
+| Cosine Distance | 0.0317 |
 | Clusters | 2,095 |
 | Noise Fraction | 0.0326 |
 
@@ -94,9 +96,9 @@
 
 ## Checkpoint 3 — 3k (3003 episodes)
 
-**Episodes:** 3,003  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 3,003
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 0.400)
 
 ### Gradient Metrics
@@ -114,6 +116,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.0318 |
+| Cosine Distance | 0.0203 |
 | Clusters | 2,088 |
 | Noise Fraction | 0.0305 |
 
@@ -121,9 +124,9 @@
 
 ## Checkpoint 4 — 4k (4000 episodes)
 
-**Episodes:** 4,000  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 4,000
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 0.400)
 
 ### Gradient Metrics
@@ -141,6 +144,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.0393 |
+| Cosine Distance | 0.0250 |
 | Clusters | 1,962 |
 | Noise Fraction | 0.0235 |
 
@@ -148,9 +152,9 @@
 
 ## Checkpoint 5 — 5k (5007 episodes)
 
-**Episodes:** 5,007  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 5,007
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 0.400)
 
 ### Gradient Metrics
@@ -168,6 +172,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.0589 |
+| Cosine Distance | 0.0555 |
 | Clusters | 2,048 |
 | Noise Fraction | 0.0266 |
 
@@ -175,9 +180,9 @@
 
 ## Checkpoint 6 — 6k (6006 episodes)
 
-**Episodes:** 6,006  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 6,006
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 0.400)
 
 ### Gradient Metrics
@@ -195,6 +200,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.0872 |
+| Cosine Distance | — |
 | Clusters | 2,025 |
 | Noise Fraction | 0.0329 |
 
@@ -217,9 +223,9 @@
 
 ## Checkpoint 7 — 7k (7001 episodes)
 
-**Episodes:** 7,001  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 7,001
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 0.400)
 
 ### Gradient Metrics
@@ -237,6 +243,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.2369 |
+| Cosine Distance | 0.0492 |
 | Clusters | 1,852 |
 | Noise Fraction | 0.0372 |
 
@@ -244,9 +251,9 @@
 
 ## Checkpoint 8 — 8k (8009 episodes)
 
-**Episodes:** 8,009  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 8,009
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.300) | top 25% (≥ 1.967)
 
 ### Gradient Metrics
@@ -264,6 +271,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 0.8688 |
+| Cosine Distance | 0.5087 |
 | Clusters | 1,358 |
 | Noise Fraction | 0.0338 |
 
@@ -271,9 +279,9 @@
 
 ## Checkpoint 9 — 9k (9014 episodes)
 
-**Episodes:** 9,014  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 9,014
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 0.400) | top 25% (≥ 2.187)
 
 ### Gradient Metrics
@@ -291,6 +299,7 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 1.3195 |
+| Cosine Distance | 0.5902 |
 | Clusters | 1,245 |
 | Noise Fraction | 0.0328 |
 
@@ -298,9 +307,9 @@
 
 ## Checkpoint 100 — 100k (100020 episodes)
 
-**Episodes:** 100,020  
-**Success:** 125  
-**Failure:** 125  
+**Episodes:** 100,020
+**Success:** 125
+**Failure:** 125
 **Threshold:** bottom 25% (≤ 2.193) | top 25% (≥ 2.283)
 
 ### Gradient Metrics
@@ -318,5 +327,6 @@
 | Metric | Value |
 |---|---|
 | Activation Separation | 5.8891 |
+| Cosine Distance | — |
 | Clusters | 453 |
 | Noise Fraction | 0.0858 |
