@@ -17,10 +17,10 @@ from shared.storage import load_analysis_results
 @dataclass
 class Args:
     env_id: str = "MiniGrid-KeyCorridorS3R3-v0"
-    seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
+    seeds: list[int] = field(default_factory=lambda: [6,7,8,9,10])
     total_episodes: int = 100000
-    checkpoint_freq: Optional[int] = 1000
-    checkpoint_achievements: bool = False
+    checkpoint_freq: Optional[int] = 500
+    checkpoint_achievements: bool = True
     num_procs: int = 16
     frames_per_proc: int = 256
     entropy_coef: float = 0.02
