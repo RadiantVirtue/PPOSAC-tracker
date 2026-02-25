@@ -5,6 +5,7 @@ import gymnasium as gym
 import minigrid  # noqa: F401  — registers MiniGrid envs with gymnasium
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from wrappers import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
 from shared.thresholding import partition_episodes
@@ -54,7 +55,7 @@ def evaluate_frozen_policy(
     episodes = []
     eps_scores = []
 
-    for _ in range(n_episodes):
+    for _ in tqdm(range(n_episodes), desc="Evaluating episodes", unit="ep"):
         obs, info = env.reset()
         ep_obs, ep_actions, ep_rewards, ep_dones = [], [], [], []
 
