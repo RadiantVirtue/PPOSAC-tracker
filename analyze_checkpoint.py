@@ -208,13 +208,12 @@ def _analyze_sac(args):
     print(f"  Threshold mu={mu:.3f}")
 
     # Load networks
-    from minigrid.wrappers import ImgObsWrapper
     env = gym.make(args.env_id)
-    env = ImgObsWrapper(env)
-    actor, qf1, qf2, alpha, episode = load_sac_networks(
-        args.checkpoint_path, env, args.device
-    )
+    n_actions = env.action_space.n
     env.close()
+    actor, qf1, qf2, alpha, episode = load_sac_networks(
+        args.checkpoint_path, n_actions, args.device
+    )
 
     # Step 2: Gradient computation
     grad_success = compute_reinterpreted_gradient(
@@ -238,7 +237,7 @@ def _analyze_sac(args):
         + [0] * len(failure_batch["observations"])
     )
     activations = extract_activations(
-        actor, all_obs, layer_name="fc2", device=args.device
+        actor, all_obs, layer_name="actor.0", device=args.device
     )
     projected = reduce_dimensions(activations)
     cluster_stats = cluster_activations(projected, labels)
@@ -247,7 +246,7 @@ def _analyze_sac(args):
     # Step 5: RSA
     data = buffer.get_all_valid()
     rsa_result = run_rsa_for_checkpoint(
-        actor, data["observations"], "fc2", args.device,
+        actor, data["observations"], "actor.0", args.device,
         stimulus_set=stimulus_set, gt_groups=gt_groups,
     )
 

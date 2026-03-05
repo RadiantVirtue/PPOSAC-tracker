@@ -1,6 +1,4 @@
-"""PPO training using rl-starter-files' ACModel + torch_ac.PPOAlgo."""
-import _rl_path  # noqa: F401  — adds rl-starter-files to sys.path
-
+"""PPO training using ACModel + torch_ac.PPOAlgo."""
 import os
 import random
 import time
@@ -14,8 +12,8 @@ import torch_ac.algos.base as _torch_ac_base
 from torch_ac.utils.penv import ParallelEnv
 from torch.utils.tensorboard import SummaryWriter
 
-from model import ACModel
-from utils.format import get_obss_preprocessor
+from shared.model import ACModel
+from shared.format import get_obss_preprocessor
 
 from wrappers import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
 from ppo.checkpoint_gen import MilestoneTracker
@@ -128,11 +126,11 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
     # Create parallel envs (each with a different seed offset)
     envs = [_make_env(args.env_id, args.seed + 10000 * i) for i in range(args.num_procs)]
 
-    # Observation space preprocessing (rl-starter-files utility)
+    # Observation space preprocessing
     obs_space, preprocess_obss = get_obss_preprocessor(envs[0].observation_space)
 
     # ACModel: CNN + actor/critic heads
-    acmodel = ACModel(obs_space, envs[0].action_space, use_memory=False, use_text=False)
+    acmodel = ACModel(obs_space, envs[0].action_space)
     acmodel.to(device)
 
     # Patch ParallelEnv so PPOAlgo uses our info-capturing subclass
