@@ -8,7 +8,6 @@ PPO and SAC implementations for MiniGrid environments, with achievement tracking
 pip install gymnasium minigrid torch numpy tyro tensorboard torch_ac
 ```
 
-Also requires [rl-starter-files](https://github.com/lcswillems/rl-starter-files) cloned as a sibling directory (`../rl-starter-files`).
 
 ## Training
 
@@ -53,13 +52,16 @@ PPOSAC-tracker/
 │   ├── gradients.py        # Gradient analysis
 │   └── checkpoint_gen.py   # Milestone checkpoint saving
 ├── sac/
-│   ├── train.py            # SAC training
+│   ├── train.py            # SAC+PER training (CNN encoder, soft target updates)
+│   ├── per_buffer.py       # TaggedPERBuffer (SumTree priority replay)
+│   ├── tagged_buffer.py    # TaggedReplayBuffer base + EpisodeStore
 │   ├── sampling.py         # Evaluation rollouts
 │   ├── gradients.py        # Gradient analysis
-│   ├── reward_moments.py   # Reward statistics
-│   └── tagged_buffer.py    # Replay buffer with episode tagging
+│   └── reward_moments.py   # Reward statistics
 ├── shared/
-│   ├── networks.py         # ACModelWrapper, PPOAgent
+│   ├── model.py            # ACModel (CNN actor-critic)
+│   ├── format.py           # Observation preprocessing
+│   ├── networks.py         # ACModelWrapper, SACQNetwork, SACActor
 │   ├── achievements.py     # Achievement definitions + eps scoring
 │   ├── activation_utils.py # Shared activation helpers
 │   ├── gradient_utils.py   # Shared gradient helpers
@@ -72,8 +74,7 @@ PPOSAC-tracker/
 │   └── run_sac_analysis.py # SAC analysis runner
 ├── wrappers.py             # DoorKey + KeyCorridor achievement wrappers
 ├── analyze_checkpoint.py   # Analysis pipeline entry point
-├── sweep.py                # Hyperparameter sweep
-└── _rl_path.py             # Adds rl-starter-files to sys.path
+└── sweep.py                # Hyperparameter sweep
 ```
 
 ## Environments

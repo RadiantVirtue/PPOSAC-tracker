@@ -1,4 +1,3 @@
-import _rl_path  # noqa: F401  — adds rl-starter-files to sys.path
 from collections import namedtuple
 
 import gymnasium as gym
@@ -17,8 +16,8 @@ EpisodeData = namedtuple(
 
 # Load a frozen PPO agent (ACModel) from a checkpoint. Returns (ACModelWrapper, episode_count).
 def load_ppo_agent(checkpoint_path, env, device="cuda"):
-    from model import ACModel
-    from utils.format import get_obss_preprocessor
+    from shared.model import ACModel
+    from shared.format import get_obss_preprocessor
     from shared.networks import ACModelWrapper
 
     obs_space, _ = get_obss_preprocessor(env.observation_space)
