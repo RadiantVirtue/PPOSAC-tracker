@@ -1,4 +1,4 @@
-"""Sweep orchestration: train PPO and SAC across DoorKey and KeyCorridor."""
+"""Sweep orchestration: train PPO and Rainbow across DoorKey and KeyCorridor."""
 import os, warnings
 os.environ["PYTHONWARNINGS"] = "ignore::UserWarning"
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -7,7 +7,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 import time
 
 from ppo.train import Args as PPOArgs, main_ppo
-from sac.train import Args as SACArgs, main_sac
+from rainbow.train import Args as RainbowArgs, main_rainbow
 from shared.achievements import get_achievements_for_env
 
 ENVIRONMENT_FAMILIES = {
@@ -22,13 +22,13 @@ ENVIRONMENT_FAMILIES = {
 }
 
 FAMILIES_TO_RUN = ["DoorKey"]
-ALGORITHMS = ["ppo"]
+ALGORITHMS = ["ppo", "rainbow"]
 
 SOLVE_THRESHOLD = 0.75    # fraction of episodes that must be solved
 EVAL_WINDOW = 100         # episodes per evaluation window
 REQUIRED_CONSECUTIVE = 5  # consecutive passing windows before stopping
 MAX_EPISODES = 100_000    # PPO episode budget
-MAX_TIMESTEPS = 10_000_000  # SAC timestep budget
+MAX_TIMESTEPS = 10_000_000  # Rainbow timestep budget
 SEEDS = [1, 2, 3]
 CONSISTENCY_WINDOW = 5_000  # max spread in convergence episodes across seeds
 EXPERIMENT_ROOT = "sweep_results"
@@ -99,15 +99,15 @@ def run_sweep():
                         )
                         episodes, frames = main_ppo(args, should_stop=tracker.update)
 
-                    elif algorithm == "sac":
-                        args = SACArgs(
+                    elif algorithm == "rainbow":
+                        args = RainbowArgs(
                             env_id=env_id,
                             total_timesteps=MAX_TIMESTEPS,
                             seed=seed,
                             checkpoint_freq=0,
                             experiment_root=EXPERIMENT_ROOT,
                         )
-                        episodes, frames = main_sac(args, should_stop=tracker.update)
+                        episodes, frames = main_rainbow(args, should_stop=tracker.update)
 
                     seed_results.append({
                         "seed": seed,
@@ -144,12 +144,12 @@ def run_sweep():
 
     # Print summary table
     print(f"\n{'='*80}")
-    print(f"{'ENV':<40} {'ALG':<6} {'CONV':>6}  {'SPREAD':>7}  {'CONSISTENT'}")
+    print(f"{'ENV':<40} {'ALG':<8} {'CONV':>6}  {'SPREAD':>7}  {'CONSISTENT'}")
     print(f"{'-'*80}")
     for r in results:
         spread_str = f"{r['eps_spread']:>7}" if r["eps_spread"] is not None else "      -"
         print(
-            f"{r['env_id']:<40} {r['algorithm']:<6} "
+            f"{r['env_id']:<40} {r['algorithm']:<8} "
             f"{r['n_converged']:>2}/{len(SEEDS)}  {spread_str}  "
             f"{'YES' if r['consistent'] else 'no'}"
         )
