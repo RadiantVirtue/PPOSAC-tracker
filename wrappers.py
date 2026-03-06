@@ -54,6 +54,17 @@ class DoorKeyAchievementWrapper(gym.Wrapper):
                     # reached_door: agent adjacent to door
                     if abs(ax - i) + abs(ay - j) <= 1:
                         self._ach["reached_door"] = True
+                    # facing_door: agent is adjacent and directly facing the door
+                    # agent_dir: 0=right(+x), 1=down(+y), 2=left(-x), 3=up(-y)
+                    if not self._ach["facing_door"]:
+                        dx, dy = i - ax, j - ay
+                        if (
+                            (dx == 1  and dy == 0 and inner.agent_dir == 0) or
+                            (dx == 0  and dy == 1 and inner.agent_dir == 1) or
+                            (dx == -1 and dy == 0 and inner.agent_dir == 2) or
+                            (dx == 0  and dy == -1 and inner.agent_dir == 3)
+                        ):
+                            self._ach["facing_door"] = True
                     # opened_door: door just became open
                     if door_is_open and not self._prev_door_open:
                         self._ach["opened_door"] = True

@@ -2,6 +2,7 @@ DOORKEY_ACHIEVEMENTS = [
     "found_key",
     "picked_up_key",
     "reached_door",
+    "facing_door",
     "opened_door",
     "crossed_door",
     "reached_goal",
@@ -20,6 +21,7 @@ DOORKEY_ACHIEVEMENT_REWARDS = {
     "found_key":     0.05,
     "picked_up_key": 0.05,
     "reached_door":  0.1,
+    "facing_door":   0.1,
     "opened_door":   0.1,
     "crossed_door":  0.1,
     "reached_goal":  1.0,   # strongly biased final

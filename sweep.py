@@ -12,9 +12,7 @@ from shared.achievements import get_achievements_for_env
 
 ENVIRONMENT_FAMILIES = {
     "DoorKey": [
-        "MiniGrid-DoorKey-5x5-v0",
-        "MiniGrid-DoorKey-6x6-v0",
-        "MiniGrid-DoorKey-8x8-v0",
+        "MiniGrid-DoorKey-5x5-v0"
     ],
     "KeyCorridor": [
         "MiniGrid-KeyCorridorS3R3-v0"
@@ -22,7 +20,7 @@ ENVIRONMENT_FAMILIES = {
 }
 
 FAMILIES_TO_RUN = ["DoorKey"]
-ALGORITHMS = ["ppo"]
+ALGORITHMS = ["ppo", "sac"]
 
 SOLVE_THRESHOLD = 0.75    # fraction of episodes that must be solved
 EVAL_WINDOW = 100         # episodes per evaluation window

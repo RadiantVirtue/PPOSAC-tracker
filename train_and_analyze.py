@@ -11,42 +11,47 @@ import tyro
 
 from analyze_checkpoint import analyze_checkpoint
 from ppo.train import Args as PPOArgs, main_ppo
+from sac.train import Args as SACArgs, main_sac
 from shared.storage import load_analysis_results
 
 
 @dataclass
 class Args:
     env_id: str = "MiniGrid-KeyCorridorS3R3-v0"
-    seeds: list[int] = field(default_factory=lambda: [6,7,8,9,10])
+    seeds: list[int] = field(default_factory=lambda: [1,2,3,4,5])
     total_episodes: int = 100000
-    checkpoint_freq: Optional[int] = 500
+    checkpoint_freq: Optional[int] = 250
     checkpoint_achievements: bool = True
     num_procs: int = 16
+    sac_num_envs: int = 16
     frames_per_proc: int = 256
     entropy_coef: float = 0.02
-    experiment_root: str = "Proof-of-Concept-Runs"
+    experiment_root: str = "SAC-Proof-of-Concept-Runs"
     n_eval_episodes: int = 500
     run_rsa: bool = True
     split_mode: str = "percentile" #percentile or eps
     percentile_x: int = 25
     auto_push: bool = True
     device: str = "cuda"
-    analyze_every: int =  5 # analyze every N-th saved checkpoint
+    analyze_every: int =  10 # analyze every N-th saved checkpoint
+    run_ppo: bool = False
+    run_sac: bool = True
+    sac_total_timesteps: int = 10_000_000
 
 
 # ── label helpers ────────────────────────────────────────────────────────────
 
 def label_from_path(path: str) -> str:
     name = os.path.splitext(os.path.basename(path))[0]
-    m = re.match(r"periodic_(\d+)_(\d+k)_ep(\d+)", name)
+    m = re.match(r"(?:ppo|sac)_(\d+)_periodic_(\d+)", name)
     if m:
-        return f"Checkpoint {int(m.group(1))} — {m.group(2)} ({m.group(3)} episodes)"
-    m = re.match(r"final_(\d+k)_episodes", name)
+        return f"Checkpoint {int(m.group(2)):02d} ({int(m.group(1)):,} episodes)"
+    m = re.match(r"(?:ppo|sac)_(\d+)_final", name)
     if m:
-        return f"Final — {m.group(1)} episodes"
-    m = re.match(r"milestone_first_(.+)_ep(\d+)", name)
+        return f"Final ({int(m.group(1)):,} episodes)"
+    m = re.match(r"(?:ppo|sac)_(\d+)_(.+)", name)
     if m:
-        return f"{m.group(1)} @ ep{m.group(2)}"
+        return f"{m.group(2)} @ ep{m.group(1)}"
     return name
 
 
@@ -269,6 +274,86 @@ def _run_seed(args, seed: int, freq: int) -> tuple:
     return checkpoint_results, None
 
 
+# ── per-seed SAC training + analysis ─────────────────────────────────────────
+
+def _run_seed_sac(args, seed: int, freq: int) -> tuple:
+    """Train SAC + analyse all checkpoints for one seed.
+    Returns (checkpoint_results, report_path_or_None)."""
+    seed_root = os.path.join(args.experiment_root, f"seed_{seed}")
+
+    sac_args = SACArgs(
+        env_id=args.env_id,
+        seed=seed,
+        total_timesteps=args.sac_total_timesteps,
+        checkpoint_freq=freq,
+        experiment_root=seed_root,
+        cuda=(args.device == "cuda"),
+        num_envs=args.sac_num_envs,
+    )
+
+    saved_paths: list[str] = []
+
+    def on_checkpoint(path: str):
+        saved_paths.append(path)
+        print(f"  [checkpoint] {os.path.basename(path)}")
+
+    print(f"=== Training SAC on {args.env_id} (seed={seed}) ===")
+    episode_count, _ = main_sac(sac_args, on_checkpoint_saved=on_checkpoint)
+    print(f"Training complete: {episode_count:,} episodes\n")
+
+    seen: set[str] = set()
+    unique_paths: list[str] = []
+    for p in saved_paths:
+        if p not in seen:
+            seen.add(p)
+            unique_paths.append(p)
+
+    paths_to_analyze = unique_paths[::args.analyze_every]
+    if unique_paths and unique_paths[-1] not in paths_to_analyze:
+        paths_to_analyze.append(unique_paths[-1])
+
+    print(f"=== Analysing {len(paths_to_analyze)}/{len(unique_paths)} checkpoint(s) for seed {seed} ===\n")
+    for path in paths_to_analyze:
+        label = label_from_path(path)
+        print(f"--- {label} ---")
+        analyze_checkpoint(
+            "sac", path, seed_root,
+            env_id=args.env_id,
+            n_episodes=args.n_eval_episodes,
+            device=args.device,
+            reason=label,
+            run_rsa=args.run_rsa,
+            split_mode=args.split_mode,
+            percentile_x=args.percentile_x,
+        )
+
+    checkpoint_results = []
+    for path in paths_to_analyze:
+        basename = os.path.splitext(os.path.basename(path))[0]
+        json_path = os.path.join(seed_root, "analysis_logs", "sac", f"{basename}.json")
+        if os.path.exists(json_path):
+            r = load_analysis_results(json_path)
+            checkpoint_results.append((label_from_path(path), r))
+        else:
+            print(f"  [warn] No analysis JSON for {basename} — skipped in report")
+
+    checkpoint_results.sort(key=lambda x: x[1].get("episode", 0))
+
+    if checkpoint_results:
+        safe_env = args.env_id.replace("/", "_").replace("\\", "_")
+        report_md = generate_report(
+            checkpoint_results, args.env_id, seed, episode_count, seed_root
+        )
+        report_path = os.path.join(seed_root, f"report_sac_{safe_env}_{seed}.md")
+        os.makedirs(seed_root, exist_ok=True)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(report_md)
+        print(f"Per-seed SAC report saved: {report_path}")
+        return checkpoint_results, report_path
+
+    return checkpoint_results, None
+
+
 # ── cross-seed averaged report ────────────────────────────────────────────────
 
 # scalar metrics reported in the averaged report
@@ -410,29 +495,51 @@ def main():
 
     freq = args.checkpoint_freq if args.checkpoint_freq is not None else (args.total_episodes // 10)
 
-    all_seed_results: dict[int, list] = {}
+    all_ppo_results: dict[int, list] = {}
+    all_sac_results: dict[int, list] = {}
     report_paths: list[str] = []
-    for seed in args.seeds:
-        results, rpath = _run_seed(args, seed, freq)
-        if results:
-            all_seed_results[seed] = results
-        else:
-            print(f"[warn] Seed {seed} produced no results — skipped in averaged report")
-        if rpath:
-            report_paths.append(rpath)
 
-    if not all_seed_results:
+    for seed in args.seeds:
+        if args.run_ppo:
+            results, rpath = _run_seed(args, seed, freq)
+            if results:
+                all_ppo_results[seed] = results
+            else:
+                print(f"[warn] PPO seed {seed} produced no results — skipped in averaged report")
+            if rpath:
+                report_paths.append(rpath)
+
+        if args.run_sac:
+            results, rpath = _run_seed_sac(args, seed, freq)
+            if results:
+                all_sac_results[seed] = results
+            else:
+                print(f"[warn] SAC seed {seed} produced no results — skipped in averaged report")
+            if rpath:
+                report_paths.append(rpath)
+
+    if not all_ppo_results and not all_sac_results:
         print("No results across any seed.")
         return
 
     safe_env = args.env_id.replace("/", "_").replace("\\", "_")
-    avg_md = generate_averaged_report(all_seed_results, args.env_id, args.seeds)
-    avg_path = os.path.join(args.experiment_root, f"report_averaged_{safe_env}.md")
     os.makedirs(args.experiment_root, exist_ok=True)
-    with open(avg_path, "w", encoding="utf-8") as f:
-        f.write(avg_md)
-    print(f"\nAveraged report saved: {avg_path}")
-    report_paths.append(avg_path)
+
+    if all_ppo_results:
+        avg_md = generate_averaged_report(all_ppo_results, args.env_id, args.seeds)
+        avg_path = os.path.join(args.experiment_root, f"report_averaged_ppo_{safe_env}.md")
+        with open(avg_path, "w", encoding="utf-8") as f:
+            f.write(avg_md)
+        print(f"\nAveraged PPO report saved: {avg_path}")
+        report_paths.append(avg_path)
+
+    if all_sac_results:
+        avg_md = generate_averaged_report(all_sac_results, args.env_id, args.seeds)
+        avg_path = os.path.join(args.experiment_root, f"report_averaged_sac_{safe_env}.md")
+        with open(avg_path, "w", encoding="utf-8") as f:
+            f.write(avg_md)
+        print(f"\nAveraged SAC report saved: {avg_path}")
+        report_paths.append(avg_path)
 
     if args.auto_push and report_paths:
         _push_reports(report_paths, args.env_id)

@@ -42,7 +42,7 @@ class Args:
 
     env_id: str = "MiniGrid-DoorKey-8x8-v0"
     total_timesteps: int = 10_000_000
-    buffer_size: int = int(1e5)
+    buffer_size: int = int(5e5)
     gamma: float = 0.99
     tau: float = 0.005          # soft target update rate (was 1.0 hard copy)
     batch_size: int = 256
@@ -53,9 +53,10 @@ class Args:
     target_network_frequency: int = 1   # soft update every step (tau=0.005)
     alpha: float = 0.05         # initial entropy coefficient (autotune adjusts from here)
     autotune: bool = True       # auto-tune alpha to maintain target entropy
-    target_entropy_scale: float = 0.5
+    target_entropy_scale: float = 0.3
     checkpoint_freq: int = 1000
     experiment_root: str = "experiment_root"
+    num_envs: int = 16
 
     # PER hyperparameters
     per_alpha: float = 0.6          # priority exponent (0=uniform, 1=greedy)
@@ -138,7 +139,8 @@ def main_sac(args, on_checkpoint_saved=None, should_stop=None):
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed, 0, args.capture_video, run_name)]
+        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name)
+         for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete)
     n_actions = envs.single_action_space.n
@@ -185,12 +187,19 @@ def main_sac(args, on_checkpoint_saved=None, should_stop=None):
     episode_store = EpisodeStore()
     start_time = time.time()
 
-    current_episode_id = 0
-    ep_obs_buf, ep_act_buf, ep_rew_buf, ep_done_buf = [], [], [], []
-    ep_return = 0.0
+    # Per-env episode tracking
+    _next_ep_id  = envs.num_envs
+    ep_ids       = list(range(envs.num_envs))          # current episode ID per env
+    ep_obs       = {i: [] for i in range(envs.num_envs)}
+    ep_act       = {i: [] for i in range(envs.num_envs)}
+    ep_rew       = {i: [] for i in range(envs.num_envs)}
+    ep_done      = {i: [] for i in range(envs.num_envs)}
+    ep_return    = [0.0] * envs.num_envs
+    total_episodes = 0
 
     global_step = 0
-    obs, _ = envs.reset(seed=args.seed)   # obs: dict {"image": (1,H,W,C), "mission": ...}
+    _ckpt_num = 0
+    obs, _ = envs.reset(seed=args.seed)   # obs: dict {"image": (N,H,W,C), "mission": ...}
     next_checkpoint = args.checkpoint_freq if args.checkpoint_freq > 0 else 0
 
     # Scalars set inside the update block, logged every 100 steps
@@ -215,17 +224,7 @@ def main_sac(args, on_checkpoint_saved=None, should_stop=None):
             actions = actions.cpu().numpy()
 
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        global_step += 1
-
-        if "episode" in infos and infos["_episode"][0]:
-            ep_return_logged = float(infos["episode"]["r"][0])
-            ep_length_logged = int(infos["episode"]["l"][0])
-            print(
-                f"global_step={global_step}, episode={current_episode_id}, "
-                f"episodic_return={ep_return_logged}"
-            )
-            writer.add_scalar("charts/episodic_return", ep_return_logged, current_episode_id)
-            writer.add_scalar("charts/episodic_length", ep_length_logged, current_episode_id)
+        global_step += envs.num_envs
 
         # Handle terminal observation for truncated episodes
         real_next_obs_image = next_obs["image"].astype(np.float32)
@@ -234,61 +233,66 @@ def main_sac(args, on_checkpoint_saved=None, should_stop=None):
                 if trunc and infos["_final_observation"][idx]:
                     real_next_obs_image[idx] = infos["final_observation"][idx]["image"].astype(np.float32)
 
-        # Store single-env transition (strip leading batch dim)
-        ep_obs_buf.append(obs_image[0])
-        ep_act_buf.append(actions[0])
-        ep_rew_buf.append(rewards[0])
-        ep_return += rewards[0]
+        # Add all num_envs transitions to the replay buffer
+        _stop = False
+        for i in range(envs.num_envs):
+            ep_obs[i].append(obs_image[i])
+            ep_act[i].append(actions[i])
+            ep_rew[i].append(rewards[i])
+            ep_done[i].append(terminations[i] or truncations[i])
+            ep_return[i] += rewards[i]
+            rb.add(obs_image[i], real_next_obs_image[i],
+                   actions[i], rewards[i], terminations[i], ep_ids[i])
 
-        rb.add(
-            obs_image[0], real_next_obs_image[0],
-            actions[0], rewards[0], terminations[0],
-            current_episode_id,
-        )
+            if terminations[i] or truncations[i]:
+                ep_eps = float(infos["eps"][i]) if "eps" in infos else 0.0
+                rb.backfill_episode(ep_ids[i], ep_return[i], ep_eps)
 
-        done = terminations[0] or truncations[0]
-        ep_done_buf.append(done)
-
-        if done:
-            ep_eps = float(infos["eps"][0]) if "eps" in infos else 0.0
-            rb.backfill_episode(current_episode_id, ep_return, ep_eps)
-
-            achievements = {}
-            if "achievements" in infos:
-                achievements = {
-                    k: bool(v[0])
-                    for k, v in infos["achievements"].items()
-                    if not k.startswith("_")
-                }
-            episode_store.add_episode(
-                ep_obs_buf, ep_act_buf, ep_rew_buf, ep_done_buf,
-                ep_return, ep_eps, achievements,
-            )
-
-            current_episode_id += 1
-            ep_obs_buf, ep_act_buf, ep_rew_buf, ep_done_buf = [], [], [], []
-            ep_return = 0.0
-
-            if args.checkpoint_freq > 0 and current_episode_id >= next_checkpoint:
-                ckpt_base = (
-                    f"{args.experiment_root}/checkpoints/sac/"
-                    f"periodic_{current_episode_id // 1000}k_episodes"
+                achievements = {}
+                if "achievements" in infos:
+                    achievements = {
+                        k: bool(v[i])
+                        for k, v in infos["achievements"].items()
+                        if not k.startswith("_")
+                    }
+                episode_store.add_episode(
+                    ep_obs[i], ep_act[i], ep_rew[i], ep_done[i],
+                    ep_return[i], ep_eps, achievements,
                 )
-                save_checkpoint_sac(
-                    actor, qf1, qf2, qf1_target, qf2_target,
-                    q_optimizer, actor_optimizer, global_step,
-                    current_episode_id, f"{ckpt_base}.pt",
-                    log_alpha if args.autotune else None,
-                    a_optimizer if args.autotune else None,
-                )
-                rb.save(f"{ckpt_base}_buffer.pkl")
-                episode_store.save(f"{ckpt_base}_episodes.pkl")
-                if on_checkpoint_saved:
-                    on_checkpoint_saved(f"{ckpt_base}.pt")
-                next_checkpoint += args.checkpoint_freq
 
-            if should_stop and should_stop({"achievements": achievements}):
-                break
+                total_episodes += 1
+                print(f"episode={total_episodes}, return={ep_return[i]:.3f}")
+                writer.add_scalar("charts/episodic_return", ep_return[i], total_episodes)
+                writer.add_scalar("charts/episodic_length", len(ep_obs[i]), total_episodes)
+                ep_ids[i]   = _next_ep_id;  _next_ep_id += 1
+                ep_obs[i]   = [];  ep_act[i]  = []
+                ep_rew[i]   = [];  ep_done[i] = []
+                ep_return[i] = 0.0
+
+                if args.checkpoint_freq > 0 and total_episodes >= next_checkpoint:
+                    _ckpt_num += 1
+                    ckpt_base = (
+                        f"{args.experiment_root}/checkpoints/sac/"
+                        f"sac_{total_episodes}_periodic_{_ckpt_num:02d}"
+                    )
+                    save_checkpoint_sac(
+                        actor, qf1, qf2, qf1_target, qf2_target,
+                        q_optimizer, actor_optimizer, global_step,
+                        total_episodes, f"{ckpt_base}.pt",
+                        log_alpha if args.autotune else None,
+                        a_optimizer if args.autotune else None,
+                    )
+                    rb.save(f"{ckpt_base}_buffer.pkl")
+                    episode_store.save(f"{ckpt_base}_episodes.pkl")
+                    if on_checkpoint_saved:
+                        on_checkpoint_saved(f"{ckpt_base}.pt")
+                    next_checkpoint += args.checkpoint_freq
+
+                if should_stop and should_stop({"achievements": achievements}):
+                    _stop = True
+
+        if _stop:
+            break
 
         obs = next_obs
 
@@ -376,31 +380,31 @@ def main_sac(args, on_checkpoint_saved=None, should_stop=None):
                     )
 
             if global_step % 100 == 0 and qf1_a_values is not None:
-                writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), current_episode_id)
-                writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), current_episode_id)
-                writer.add_scalar("losses/qf1_loss", qf1_loss.item(), current_episode_id)
-                writer.add_scalar("losses/qf2_loss", qf2_loss.item(), current_episode_id)
-                writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, current_episode_id)
-                writer.add_scalar("losses/actor_loss", actor_loss.item(), current_episode_id)
-                writer.add_scalar("losses/alpha", alpha, current_episode_id)
-                writer.add_scalar("losses/per_beta", current_beta, current_episode_id)
-                writer.add_scalar("losses/mean_is_weight", mean_is_weight, current_episode_id)
+                writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), total_episodes)
+                writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), total_episodes)
+                writer.add_scalar("losses/qf1_loss", qf1_loss.item(), total_episodes)
+                writer.add_scalar("losses/qf2_loss", qf2_loss.item(), total_episodes)
+                writer.add_scalar("losses/qf_loss", qf_loss.item() / 2.0, total_episodes)
+                writer.add_scalar("losses/actor_loss", actor_loss.item(), total_episodes)
+                writer.add_scalar("losses/alpha", alpha, total_episodes)
+                writer.add_scalar("losses/per_beta", current_beta, total_episodes)
+                writer.add_scalar("losses/mean_is_weight", mean_is_weight, total_episodes)
                 writer.add_scalar("charts/SPS",
                                   int(global_step / (time.time() - start_time)),
-                                  current_episode_id)
+                                  total_episodes)
                 if args.autotune and alpha_loss is not None:
-                    writer.add_scalar("losses/alpha_loss", alpha_loss.item(), current_episode_id)
+                    writer.add_scalar("losses/alpha_loss", alpha_loss.item(), total_episodes)
 
     # Final checkpoint
     if args.checkpoint_freq > 0:
         ckpt_base = (
             f"{args.experiment_root}/checkpoints/sac/"
-            f"final_{current_episode_id // 1000}k_episodes"
+            f"sac_{total_episodes}_final"
         )
         save_checkpoint_sac(
             actor, qf1, qf2, qf1_target, qf2_target,
             q_optimizer, actor_optimizer, global_step,
-            current_episode_id, f"{ckpt_base}.pt",
+            total_episodes, f"{ckpt_base}.pt",
             log_alpha if args.autotune else None,
             a_optimizer if args.autotune else None,
         )
@@ -411,7 +415,7 @@ def main_sac(args, on_checkpoint_saved=None, should_stop=None):
 
     envs.close()
     writer.close()
-    return current_episode_id, global_step
+    return total_episodes, global_step
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ class ACModel(nn.Module):
     .critic, and .memory_size.
     """
 
+    recurrent = False
+
     def __init__(self, obs_space, action_space):
         super().__init__()
 

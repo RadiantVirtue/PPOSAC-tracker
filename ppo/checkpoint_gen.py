@@ -19,7 +19,7 @@ class MilestoneTracker:
             for ach in new:
                 path = (
                     f"{self.experiment_root}/checkpoints/{self._algo_subdir}/"
-                    f"milestone_first_{ach}_ep{episode_count}.pt"
+                    f"{self._algo_subdir}_{episode_count}_{ach}.pt"
                 )
                 self._save_fn(agent, optimizer, global_step, episode_count, path)
                 print(f"Milestone checkpoint: {ach} at episode {episode_count}")

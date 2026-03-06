@@ -191,7 +191,7 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
             _ckpt_num += 1
             path = (
                 f"{args.experiment_root}/checkpoints/ppo/"
-                f"periodic_{_ckpt_num:02d}_{episode_count // 1000}k_ep{episode_count}.pt"
+                f"ppo_{episode_count}_periodic_{_ckpt_num:02d}.pt"
             )
             save_checkpoint_ppo(acmodel, algo.optimizer, global_step, episode_count, path)
             if on_checkpoint_saved:
@@ -215,7 +215,7 @@ def main_ppo(args, on_checkpoint_saved=None, should_stop=None):
     if args.checkpoint_freq > 0:
         path = (
             f"{args.experiment_root}/checkpoints/ppo/"
-            f"final_{episode_count // 1000}k_episodes.pt"
+            f"ppo_{episode_count}_final.pt"
         )
         save_checkpoint_ppo(acmodel, algo.optimizer, global_step, episode_count, path)
         if on_checkpoint_saved:
