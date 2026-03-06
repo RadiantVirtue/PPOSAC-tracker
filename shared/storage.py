@@ -30,12 +30,12 @@ def load_analysis_results(path):
 
 
 # write metadata.json with training hyperparameters
-def save_metadata(experiment_root, ppo_args=None, sac_args=None):
+def save_metadata(experiment_root, ppo_args=None, rainbow_args=None):
     meta = {}
     if ppo_args:
         meta["ppo"] = vars(ppo_args) if hasattr(ppo_args, "__dict__") else ppo_args
-    if sac_args:
-        meta["sac"] = vars(sac_args) if hasattr(sac_args, "__dict__") else sac_args
+    if rainbow_args:
+        meta["rainbow"] = vars(rainbow_args) if hasattr(rainbow_args, "__dict__") else rainbow_args
     save_analysis_results(meta, os.path.join(experiment_root, "metadata.json"))
 
 

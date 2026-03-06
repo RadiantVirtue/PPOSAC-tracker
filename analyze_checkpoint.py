@@ -26,8 +26,10 @@ def analyze_checkpoint(algorithm, checkpoint_path, experiment_root,
 
     if algorithm == "ppo":
         result = _analyze_ppo(args)
+    elif algorithm == "rainbow":
+        result = _analyze_rainbow(args)
     else:
-        result = _analyze_sac(args)
+        raise ValueError(f"Unknown algorithm: {algorithm}")
 
     if result is not None:
         result["reason"] = reason
@@ -45,7 +47,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyse a single checkpoint (gradients + activations + RSA)"
     )
-    parser.add_argument("--algorithm", required=True, choices=["ppo", "sac"])
+    parser.add_argument("--algorithm", required=True, choices=["ppo", "rainbow"])
     parser.add_argument("--checkpoint_path", required=True)
     parser.add_argument("--experiment_root", required=True)
     parser.add_argument("--env_id", default="MiniGrid-DoorKey-8x8-v0")
@@ -112,11 +114,6 @@ def _analyze_ppo(args):
     env.close()
 
     # Step 2: Gradient Computation
-    # batch_size scales with group size (analogous to checkpoint_freq = total_episodes // 10)
-    # floor at 5 to avoid degenerate single-episode batches on small groups
-    # _norm: per-layer L2-normalised mean (discarded — not used downstream)
-    # _raw:  true mean gradient (used for opposition score and magnitude)
-    # _mb:   per-batch normalised gradient dicts (used for coherence)
     s_batch = max(5, len(success_eps) // 10)
     f_batch = max(5, len(failure_eps) // 10)
     _norm_s, raw_success, s_mb = compute_group_gradient_with_coherence(
@@ -171,13 +168,13 @@ def _analyze_ppo(args):
     }
 
 
-# full SAC analysis: buffer partitioning, gradients, activations, RSA
-def _analyze_sac(args):
-    from analysis.run_sac_analysis import load_sac_networks
-    from sac.tagged_buffer import TaggedReplayBuffer
-    from sac.gradients import compute_reinterpreted_gradient
-    from sac.reward_moments import compute_reward_moment_gradients
-    from sac.sampling import partition_buffer
+# full Rainbow analysis: episode store partitioning, gradients, activations, RSA
+def _analyze_rainbow(args):
+    from analysis.run_rainbow_analysis import load_rainbow_networks
+    from rainbow.tagged_buffer import EpisodeStore
+    from rainbow.sampling import partition_episode_store
+    from rainbow.gradients import compute_rainbow_gradient
+    from rainbow.reward_moments import compute_reward_moment_gradients
     from shared.activation_utils import (
         extract_activations,
         reduce_dimensions,
@@ -195,65 +192,66 @@ def _analyze_sac(args):
 
     stimulus_set, gt_groups = get_stimulus_config(args.env_id)
 
-    buffer_path = args.checkpoint_path.replace(".pt", "_buffer.pkl")
-    if not os.path.exists(buffer_path):
-        print(f"  Buffer not found: {buffer_path}")
+    episodes_path = args.checkpoint_path.replace(".pt", "_episodes.pkl")
+    if not os.path.exists(episodes_path):
+        print(f"  Episodes not found: {episodes_path}")
         return None
 
-    # Step 1: Partition buffer
-    buffer = TaggedReplayBuffer.load(buffer_path, args.device)
-    success_batch, failure_batch, mu = partition_buffer(
-        buffer, n_samples=5000, device=args.device
+    # Step 1: Partition episode store into success / failure
+    episode_store = EpisodeStore.load(episodes_path)
+    success_batch, failure_batch, mu = partition_episode_store(
+        episode_store, n_samples=5000, device=args.device
     )
-    print(f"  Threshold mu={mu:.3f}")
+    print(f"  Threshold mu={mu:.3f}, "
+          f"success={len(success_batch['state'])}, "
+          f"failure={len(failure_batch['state'])}")
 
-    # Load networks
+    if len(success_batch["state"]) == 0 or len(failure_batch["state"]) == 0:
+        print("  Skipping: one group is empty")
+        return None
+
+    # Load network
     env = gym.make(args.env_id)
     n_actions = env.action_space.n
     env.close()
-    actor, qf1, qf2, alpha, episode = load_sac_networks(
-        args.checkpoint_path, n_actions, args.device
-    )
+    net, episode = load_rainbow_networks(args.checkpoint_path, n_actions, args.device)
 
     # Step 2: Gradient computation
-    grad_success = compute_reinterpreted_gradient(
-        actor, qf1, qf2, success_batch, alpha, args.device
-    )
-    grad_failure = compute_reinterpreted_gradient(
-        actor, qf1, qf2, failure_batch, alpha, args.device
-    )
+    grad_success = compute_rainbow_gradient(net, success_batch, args.device)
+    grad_failure = compute_rainbow_gradient(net, failure_batch, args.device)
 
     # Step 3: Reward moment analysis
-    reward_grads = compute_reward_moment_gradients(
-        actor, qf1, qf2, success_batch, alpha, args.device
-    )
+    reward_grads = compute_reward_moment_gradients(net, success_batch, args.device)
 
-    # Step 4: Activation analysis
-    all_obs = torch.cat(
-        [success_batch["observations"], failure_batch["observations"]]
-    )
+    # Step 4: Activation analysis — hook "fc1" (64-dim pre-head layer, analogous to PPO's actor.0)
+    all_obs = torch.cat([success_batch["state"], failure_batch["state"]])
     labels = np.array(
-        [1] * len(success_batch["observations"])
-        + [0] * len(failure_batch["observations"])
+        [1] * len(success_batch["state"]) + [0] * len(failure_batch["state"])
     )
-    activations = extract_activations(
-        actor, all_obs, layer_name="actor.0", device=args.device
-    )
+    activations = extract_activations(net, all_obs, layer_name="fc1", device=args.device)
     projected = reduce_dimensions(activations)
     cluster_stats = cluster_activations(projected, labels)
     centroids = compute_centroids(activations, labels)
 
     # Step 5: RSA
-    data = buffer.get_all_valid()
-    rsa_result = run_rsa_for_checkpoint(
-        actor, data["observations"], "actor.0", args.device,
-        stimulus_set=stimulus_set, gt_groups=gt_groups,
-    )
+    # run_rsa_for_checkpoint expects (N, H, W, C) numpy; reshape from flat tensors.
+    if args.run_rsa:
+        H, W, C = net.encoder.obs_shape
+        all_obs_hwc = all_obs.cpu().numpy().reshape(-1, H, W, C)
+        rsa_result = run_rsa_for_checkpoint(
+            net, all_obs_hwc, "fc1", args.device,
+            stimulus_set=stimulus_set, gt_groups=gt_groups,
+        )
+    else:
+        rsa_result = None
 
     return {
         "episode": episode,
         "threshold_mu": mu,
-        "opposition_score": opposition_score(grad_success, grad_failure),
+        "opposition_score": (
+            opposition_score(grad_success, grad_failure)
+            if len(failure_batch["state"]) >= MIN_FAILURE_FOR_OPPOSITION else None
+        ),
         "gradient_magnitude_success": gradient_magnitude(grad_success),
         "gradient_magnitude_failure": gradient_magnitude(grad_failure),
         "activation_separation": activation_separation(
