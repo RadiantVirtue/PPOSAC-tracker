@@ -22,6 +22,8 @@ class ACModel(nn.Module):
     .critic, and .memory_size.
     """
 
+    recurrent = False  # required by torch_ac.PPOAlgo base class assertion
+
     def __init__(self, obs_space, action_space):
         super().__init__()
 
