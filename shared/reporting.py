@@ -156,6 +156,23 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             "",
         ]
 
+        # reward moments
+        rm = r.get("reward_moments") or {}
+        if rm:
+            lines += [
+                "### Reward Moments", "",
+                "| Moment | Grad Magnitude | Cosine vs. Success |",
+                "|---|---:|---:|",
+            ]
+            for moment in ("positive", "neutral", "negative"):
+                m_data = rm.get(moment) or {}
+                lines.append(
+                    f"| {moment.capitalize()} "
+                    f"| {_f(m_data.get('gradient_magnitude'))} "
+                    f"| {_f(m_data.get('cosine_vs_full_success'))} |"
+                )
+            lines += [""]
+
         # activation metrics
         cs = r.get("cluster_stats") or {}
         lines += [
@@ -254,6 +271,26 @@ def generate_averaged_report(
             else:
                 cells = " | ".join(_f(row.get(key)) for key, _ in _AVG_METRICS)
                 lines.append(f"| {seed} | {_fi(row.get('episode'))} | {cells} |")
+        lines += [""]
+
+    lines += ["---", "", "## Reward Moments (mean ± std across seeds)", ""]
+    for moment in ("positive", "neutral", "negative"):
+        lines += [
+            f"### {moment.capitalize()} reward sub-group", "",
+            "| Checkpoint | Grad Magnitude | Cosine vs. Success |",
+            "|---|---:|---:|",
+        ]
+        for k in sorted_stages:
+            label = all_stages[k]
+            grad_vals, cos_vals = [], []
+            for results in all_seed_results.values():
+                for lbl, r in results:
+                    if _stage_key(lbl) == k:
+                        rm = r.get("reward_moments") or {}
+                        m_data = rm.get(moment) or {}
+                        grad_vals.append(m_data.get("gradient_magnitude"))
+                        cos_vals.append(m_data.get("cosine_vs_full_success"))
+            lines.append(f"| {label} | {_fms(grad_vals)} | {_fms(cos_vals)} |")
         lines += [""]
 
     return "\n".join(lines)

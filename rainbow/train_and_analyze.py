@@ -119,9 +119,8 @@ def _run_seed(args: Args, seed: int) -> tuple:
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-def main():
-    args = tyro.cli(Args)
-
+def run(args: Args):
+    """Run the full Rainbow train-and-analyse loop for all seeds."""
     all_seed_results: dict[int, list] = {}
     report_paths: list[str] = []
     for seed in args.seeds:
@@ -148,6 +147,10 @@ def main():
 
     if args.auto_push and report_paths:
         push_reports(report_paths, args.env_id)
+
+
+def main():
+    run(tyro.cli(Args))
 
 
 if __name__ == "__main__":
