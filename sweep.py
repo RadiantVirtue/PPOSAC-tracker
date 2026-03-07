@@ -22,7 +22,7 @@ ENVIRONMENT_FAMILIES = {
 }
 
 FAMILIES_TO_RUN = ["DoorKey"]
-ALGORITHMS = ["ppo", "rainbow"]
+ALGORITHMS = ["rainbow"]
 
 SOLVE_THRESHOLD = 0.75    # fraction of episodes that must be solved
 EVAL_WINDOW = 100         # episodes per evaluation window
