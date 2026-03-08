@@ -46,8 +46,8 @@ class Rainbow:
     """Rainbow DQN-specific training arguments."""
     total_timesteps: int = 3_000_000
     checkpoint_freq: int = 0             # episodes between checkpoints; 0 = disabled
-    checkpoint_step_freq: int = 5_000    # steps between checkpoints; 0 = disabled
-    num_envs: int = 16
+    checkpoint_step_freq: int = 50_000    # steps between checkpoints; 0 = disabled
+    num_envs: int = 1
 
 
 @dataclass

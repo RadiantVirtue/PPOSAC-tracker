@@ -31,7 +31,7 @@ class Shared:
     """Arguments shared by both algorithms."""
 
     # Folder containing seed_N subdirs (or checkpoints directly)
-    experiment_root: str = "PPOSAC-tracker\\Rainbow-Proof-of-Concept-Runs"
+    experiment_root: str = "Rainbow-Proof-of-Concept-Runs"
 
     # Environment
     env_id: str = "MiniGrid-KeyCorridorS3R3-v0"
