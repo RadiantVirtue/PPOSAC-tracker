@@ -74,6 +74,7 @@ class Args:
     obs_shape: tuple = field(default=(), repr=False)
     state_dim: int = field(default=0, repr=False)
     max_train_steps: int = field(default=0, repr=False)
+    resume_from: str = field(default="", repr=False)  # path to .pt checkpoint; "" = fresh start
 
 
 # ── Public entrypoint ─────────────────────────────────────────────────────────
@@ -152,6 +153,20 @@ def main_rainbow(args: Args, on_checkpoint_saved=None, should_stop=None):
     last_ckpt_step = 0
     last_ckpt_episode = 0
     stop_requested = False
+
+    if args.resume_from:
+        ckpt = torch.load(args.resume_from, map_location="cpu")
+        agent.net.load_state_dict(ckpt["net_state_dict"])
+        agent.target_net.load_state_dict(ckpt["target_net_state_dict"])
+        agent.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        global_step       = ckpt["global_step"]
+        episode_count     = ckpt["episode_count"]
+        last_ckpt_step    = global_step
+        last_ckpt_episode = episode_count
+        pkl_path = args.resume_from.replace(".pt", "_episodes.pkl")
+        if os.path.exists(pkl_path):
+            episode_store = EpisodeStore.load(pkl_path)
+        print(f"  [rainbow] Resumed from step={global_step:,}, episode={episode_count:,}")
 
     while global_step < args.total_timesteps and not stop_requested:
         # Step every environment once per tick

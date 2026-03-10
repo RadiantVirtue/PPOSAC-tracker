@@ -27,7 +27,7 @@ class Args:
     checkpoint_freq: int = 0             # episodes between checkpoints; 0 = disabled
     checkpoint_step_freq: int = 5_000    # steps between checkpoints; 0 = disabled
     num_envs: int = 16
-    experiment_root: str = "Proof-of-Concept-Runs"
+    experiment_root: str = "Rainbow-Proof-of-Concept-Runs"
     n_eval_episodes: int = 500
     run_rsa: bool = True
     split_mode: str = "percentile"       # "percentile" or "eps"

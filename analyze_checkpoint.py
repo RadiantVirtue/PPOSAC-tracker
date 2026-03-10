@@ -199,12 +199,18 @@ def _analyze_rainbow(args):
 
     # Step 1: Partition episode store into success / failure
     episode_store = EpisodeStore.load(episodes_path)
-    success_batch, failure_batch, mu = partition_episode_store(
-        episode_store, n_samples=5000, device=args.device
+    success_batch, failure_batch, threshold = partition_episode_store(
+        episode_store, n_samples=5000, device=args.device,
+        mode=args.split_mode, percentile_x=args.percentile_x,
     )
-    print(f"  Threshold mu={mu:.3f}, "
-          f"success={len(success_batch['state'])}, "
-          f"failure={len(failure_batch['state'])}")
+    if isinstance(threshold, tuple):
+        print(f"  Threshold lower={threshold[0]:.3f}, upper={threshold[1]:.3f}, "
+              f"success={len(success_batch['state'])}, "
+              f"failure={len(failure_batch['state'])}")
+    else:
+        print(f"  Threshold mu={threshold:.3f}, "
+              f"success={len(success_batch['state'])}, "
+              f"failure={len(failure_batch['state'])}")
 
     if len(success_batch["state"]) == 0 or len(failure_batch["state"]) == 0:
         print("  Skipping: one group is empty")
@@ -247,7 +253,11 @@ def _analyze_rainbow(args):
 
     return {
         "episode": episode,
-        "threshold_mu": mu,
+        "split_mode": args.split_mode,
+        "percentile_x": args.percentile_x,
+        "threshold_mu":    threshold if isinstance(threshold, float) else None,
+        "threshold_lower": threshold[0] if isinstance(threshold, tuple) else None,
+        "threshold_upper": threshold[1] if isinstance(threshold, tuple) else None,
         "opposition_score": (
             opposition_score(grad_success, grad_failure)
             if len(failure_batch["state"]) >= MIN_FAILURE_FOR_OPPOSITION else None

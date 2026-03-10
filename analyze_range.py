@@ -74,7 +74,7 @@ class Rainbow:
     # Only analyze checkpoints with step number in [from_step, to_step]
     # -1 means no limit on that end.
     from_step: int = 0
-    to_step: int = 100000
+    to_step: int = -1
 
 
 @dataclass

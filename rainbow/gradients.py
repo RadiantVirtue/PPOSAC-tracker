@@ -48,4 +48,4 @@ def compute_rainbow_gradient(net, batch, device="cuda"):
 
     net.zero_grad()
     net.eval()
-    return aggregator.l2_normalized()
+    return aggregator.mean_gradient()
