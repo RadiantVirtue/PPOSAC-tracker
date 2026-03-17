@@ -1,12 +1,14 @@
+"""PPO evaluation and episode partitioning (SB3 / Crafter)."""
+import json
+import os
 from collections import namedtuple
 
-import gymnasium as gym
-import minigrid  # noqa: F401  — registers MiniGrid envs with gymnasium
 import numpy as np
 import torch
+from stable_baselines3 import PPO
 from tqdm import tqdm
 
-from wrappers import DoorKeyAchievementWrapper, KeyCorridorAchievementWrapper
+from wrappers import make_crafter_env
 from shared.thresholding import partition_episodes
 
 EpisodeData = namedtuple(
@@ -14,42 +16,41 @@ EpisodeData = namedtuple(
 )
 
 
-# Load a frozen PPO agent (ACModel) from a checkpoint. Returns (ACModelWrapper, episode_count).
-def load_ppo_agent(checkpoint_path, env, device="cuda"):
-    from shared.model import ACModel
-    from shared.format import get_obss_preprocessor
-    from shared.networks import ACModelWrapper
+def load_ppo_agent(checkpoint_path: str, device: str = "cpu"):
+    """Load a frozen SB3 PPO model + metadata.
 
-    obs_space, _ = get_obss_preprocessor(env.observation_space)
-    acmodel = ACModel(obs_space, env.action_space)
-    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    acmodel.load_state_dict(ckpt["agent_state_dict"])
-    acmodel.to(device)
-    acmodel.eval()
+    Args:
+        checkpoint_path: path to the SB3 .zip checkpoint (without .zip extension).
+        device:          torch device string.
 
-    wrapper = ACModelWrapper(acmodel).to(device)
-    wrapper.eval()
-    return wrapper, ckpt.get("episode_count", ckpt.get("global_step"))
+    Returns:
+        (model, episode_count)
+    """
+    model = PPO.load(checkpoint_path, device=device)
+    meta_path = checkpoint_path + ".meta.json"
+    episode_count = 0
+    if os.path.exists(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+        episode_count = meta.get("episode_count", 0)
+    return model, episode_count
 
 
 def evaluate_frozen_policy(
-    checkpoint_path, env_id, n_episodes=1000, device="cuda"
+    checkpoint_path: str, n_episodes: int = 1000, device: str = "cpu"
 ):
-    """Run n_episodes with a frozen PPO policy. Returns (episodes, eps_scores).
+    """Run n_episodes with a frozen SB3 PPO policy on Crafter.
 
-    Observations stored in EpisodeData are (H, W, C) image arrays as float32 tensors,
-    compatible with ACModelWrapper.forward() and extract_activations().
+    Observations stored in EpisodeData are (H, W, C) uint8 numpy arrays as a
+    stacked tensor of shape (T, H, W, C), compatible with ppo/gradients.py and
+    ppo/activations.py (which normalise internally via policy.obs_to_tensor).
+
+    Returns:
+        episodes:   list of EpisodeData namedtuples
+        eps_scores: list of float EPS scores (one per episode)
     """
-    env = gym.make(env_id)
-    if "DoorKey" in env_id:
-        env = DoorKeyAchievementWrapper(env)
-    elif "KeyCorridor" in env_id:
-        env = KeyCorridorAchievementWrapper(env)
-    else:
-        raise ValueError(f"No achievement wrapper for env_id: {env_id}")
-    # No ImgObsWrapper — ACModel accepts raw MiniGrid dict observations
-
-    agent, _step = load_ppo_agent(checkpoint_path, env, device)
+    model, _ = load_ppo_agent(checkpoint_path, device)
+    env = make_crafter_env()
 
     episodes = []
     eps_scores = []
@@ -60,26 +61,21 @@ def evaluate_frozen_policy(
 
         done = False
         while not done:
-            # obs is a dict {"image": (H,W,C) array, "mission": str}
-            obs_img = torch.tensor(obs["image"], dtype=torch.float32).unsqueeze(0).to(device)
-            with torch.no_grad():
-                action = agent.get_action(obs_img, deterministic=False)
-            action_int = action.cpu().item()
+            action, _ = model.predict(obs, deterministic=False)
+            ep_obs.append(obs.copy())
+            ep_actions.append(int(action))
 
-            ep_obs.append(obs["image"])   # store just the image array
-            ep_actions.append(action_int)
-
-            obs, reward, terminated, truncated, info = env.step(action_int)
+            obs, reward, terminated, truncated, info = env.step(int(action))
             done = terminated or truncated
-            ep_rewards.append(reward)
-            ep_dones.append(done)
+            ep_rewards.append(float(reward))
+            ep_dones.append(float(done))
 
-        eps_scores.append(info["eps"])
+        eps_scores.append(float(info.get("eps", 0.0)))
         episodes.append(
             EpisodeData(
                 observations=torch.tensor(
-                    np.array(ep_obs), dtype=torch.float32
-                ),
+                    np.array(ep_obs, dtype=np.uint8)
+                ),  # (T, H, W, C) uint8
                 actions=torch.tensor(ep_actions, dtype=torch.long),
                 rewards=torch.tensor(ep_rewards, dtype=torch.float32),
                 dones=torch.tensor(ep_dones, dtype=torch.float32),
@@ -90,10 +86,12 @@ def evaluate_frozen_policy(
     return episodes, eps_scores
 
 
-# Partition episodes into success / failure.
-# In percentile mode, raw episode returns (sum of shaped rewards) are used as
-# the ranking score rather than EPS, and the middle episodes are discarded.
-def partition(episodes, eps_scores, mode="eps", percentile_x=25):
+def partition(episodes, eps_scores, mode: str = "eps", percentile_x: int = 25):
+    """Partition episodes into success / failure groups.
+
+    In percentile mode, raw episode returns (sum of shaped rewards) are used
+    as the ranking score and the middle episodes are discarded.
+    """
     if mode == "percentile":
         scores = [ep.rewards.sum().item() for ep in episodes]
     else:

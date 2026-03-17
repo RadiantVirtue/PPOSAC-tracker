@@ -20,9 +20,9 @@ def label_from_path(path: str) -> str:
     m = re.match(r"milestone_first_(.+)_ep(\d+)", name)
     if m:
         return f"{m.group(1)} @ ep{m.group(2)}"
-    m = re.match(r"rainbow_ep(\d+)_step(\d+)", name)
+    m = re.match(r"sac_step(\d+)_ep(\d+)", name)
     if m:
-        return f"Checkpoint {int(m.group(1)):,} episodes — step {int(m.group(2)):,}"
+        return f"Checkpoint step {int(m.group(1)):,} — {int(m.group(2)):,} episodes"
     return name
 
 
@@ -102,14 +102,10 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
         "## Summary",
         "",
         "| Checkpoint | Episodes | Opp. Score | Coh. (S) | Coh. (F) "
-        "| Grad Mag (S) | Grad Mag (F) | Act. Sep. | Act. Cos. Dist. | RSA Align. |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Grad Mag (S) | Grad Mag (F) | Act. Sep. | Act. Cos. Dist. |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for label, r in checkpoint_results:
-        rsa_align = None
-        rsa = r.get("rsa")
-        if isinstance(rsa, dict):
-            rsa_align = rsa.get("alignment")
         lines.append(
             f"| {label} "
             f"| {_fi(r.get('episode'))} "
@@ -119,8 +115,7 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             f"| {_f(r.get('gradient_magnitude_success'))} "
             f"| {_f(r.get('gradient_magnitude_failure'))} "
             f"| {_f(r.get('activation_separation'))} "
-            f"| {_f(r.get('activation_cosine_distance'))} "
-            f"| {_f(rsa_align)} |"
+            f"| {_f(r.get('activation_cosine_distance'))} |"
         )
     lines += [""]
 
@@ -156,23 +151,6 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             "",
         ]
 
-        # reward moments
-        rm = r.get("reward_moments") or {}
-        if rm:
-            lines += [
-                "### Reward Moments", "",
-                "| Moment | Grad Magnitude | Cosine vs. Success |",
-                "|---|---:|---:|",
-            ]
-            for moment in ("positive", "neutral", "negative"):
-                m_data = rm.get(moment) or {}
-                lines.append(
-                    f"| {moment.capitalize()} "
-                    f"| {_f(m_data.get('gradient_magnitude'))} "
-                    f"| {_f(m_data.get('cosine_vs_full_success'))} |"
-                )
-            lines += [""]
-
         # activation metrics
         cs = r.get("cluster_stats") or {}
         lines += [
@@ -185,29 +163,6 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             f"| Noise Fraction | {_f(cs.get('noise_fraction'))} |",
             "",
         ]
-
-        # RSA
-        rsa = r.get("rsa")
-        if isinstance(rsa, dict):
-            lines += [
-                "### RSA", "",
-                "| Metric | Value |",
-                "|---|---|",
-                f"| Alignment (Spearman ρ) | {_f(rsa.get('alignment'))} |",
-                "",
-            ]
-            rdm = rsa.get("rdm")
-            elem_names = rsa.get("element_names") or []
-            if rdm and elem_names:
-                lines += ["**Representational Dissimilarity Matrix:**", ""]
-                lines.append("| |" + "".join(f" {n} |" for n in elem_names))
-                lines.append("|---|" + "---|" * len(elem_names))
-                for i, row in enumerate(rdm):
-                    lines.append(
-                        f"| {elem_names[i]} |"
-                        + "".join(f" {_f(v, 3)} |" for v in row)
-                    )
-                lines += [""]
 
     return "\n".join(lines)
 
@@ -271,26 +226,6 @@ def generate_averaged_report(
             else:
                 cells = " | ".join(_f(row.get(key)) for key, _ in _AVG_METRICS)
                 lines.append(f"| {seed} | {_fi(row.get('episode'))} | {cells} |")
-        lines += [""]
-
-    lines += ["---", "", "## Reward Moments (mean ± std across seeds)", ""]
-    for moment in ("positive", "neutral", "negative"):
-        lines += [
-            f"### {moment.capitalize()} reward sub-group", "",
-            "| Checkpoint | Grad Magnitude | Cosine vs. Success |",
-            "|---|---:|---:|",
-        ]
-        for k in sorted_stages:
-            label = all_stages[k]
-            grad_vals, cos_vals = [], []
-            for results in all_seed_results.values():
-                for lbl, r in results:
-                    if _stage_key(lbl) == k:
-                        rm = r.get("reward_moments") or {}
-                        m_data = rm.get(moment) or {}
-                        grad_vals.append(m_data.get("gradient_magnitude"))
-                        cos_vals.append(m_data.get("cosine_vs_full_success"))
-            lines.append(f"| {label} | {_fms(grad_vals)} | {_fms(cos_vals)} |")
         lines += [""]
 
     return "\n".join(lines)

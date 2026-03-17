@@ -1,151 +1,103 @@
+"""Crafter environment wrappers.
+
+CrafterGymnasiumWrapper  — adapts crafter.Env (old gym 4-tuple API) to gymnasium 5-tuple.
+CrafterAchievementWrapper — detects newly-unlocked achievements each step,
+                            applies shaped rewards, injects info["achievements"]
+                            (bool dict) and info["eps"] (float).
+make_crafter_env()       — factory used everywhere in place of _make_env(env_id).
+"""
+
+import warnings
+
+import crafter
 import gymnasium as gym
+import numpy as np
 
 from shared.achievements import (
-    DOORKEY_ACHIEVEMENTS,
-    DOORKEY_ACHIEVEMENT_REWARDS,
-    KEYCORRIDOR_ACHIEVEMENTS,
-    KEYCORRIDOR_ACHIEVEMENT_REWARDS,
+    CRAFTER_ACHIEVEMENTS,
+    CRAFTER_ACHIEVEMENT_REWARDS,
     compute_eps,
     count_achievements,
 )
 
+# Suppress crafter's old-gym deprecation warning
+warnings.filterwarnings("ignore", message=".*Gym has been unmaintained.*")
 
-class DoorKeyAchievementWrapper(gym.Wrapper):
-    """Wraps MiniGrid-DoorKey-* to inject info["achievements"] and info["eps"]."""
+
+class CrafterGymnasiumWrapper(gym.Env):
+    """Thin adapter: crafter.Env (old gym API) → gymnasium 5-tuple API."""
+
+    metadata = {"render_modes": []}
+
+    def __init__(self, **crafter_kwargs):
+        super().__init__()
+        self._env = crafter.Env(**crafter_kwargs)
+        self.observation_space = gym.spaces.Box(
+            low=0, high=255, shape=(64, 64, 3), dtype=np.uint8
+        )
+        self.action_space = gym.spaces.Discrete(self._env.action_space.n)
+
+    def reset(self, *, seed=None, **kwargs):
+        if seed is not None:
+            # crafter.Env doesn't support seeding via reset; ignore gracefully
+            pass
+        obs = self._env.reset()
+        return obs, {}
+
+    def step(self, action):
+        obs, reward, done, info = self._env.step(action)
+        return obs, float(reward), bool(done), False, info
+
+    def render(self):
+        return self._env.render()
+
+    def close(self):
+        self._env.close()
+
+
+class CrafterAchievementWrapper(gym.Wrapper):
+    """Wraps CrafterGymnasiumWrapper to inject info["achievements"] and info["eps"].
+
+    Crafter already returns cumulative per-episode achievement counts in info.
+    This wrapper:
+      - Converts counts → bool dict (achieved at least once this episode)
+      - Diffs against previous step to detect newly-unlocked achievements
+      - Adds shaped reward bonuses for each new unlock
+      - Injects info["eps"] = count_achievements(ach) + 0.9 * 0.0
+    """
 
     def __init__(self, env):
         super().__init__(env)
-        self._ach = {a: False for a in DOORKEY_ACHIEVEMENTS}
-        self._prev_door_open = False
+        self._prev_ach: dict = {}
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        self._ach = {a: False for a in DOORKEY_ACHIEVEMENTS}
-        self._prev_door_open = False
-        info["achievements"] = dict(self._ach)
-        info["eps"] = compute_eps(count_achievements(self._ach), 0.0)
+        self._prev_ach = {a: False for a in CRAFTER_ACHIEVEMENTS}
+        info["achievements"] = dict(self._prev_ach)
+        info["eps"] = 0.0
         return obs, info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-        inner = self.unwrapped
-        prev_ach = dict(self._ach)
 
-        # Detect key pickup
-        if inner.carrying is not None and inner.carrying.type == 'key':
-            self._ach["found_key"] = True  # fallback: can't carry without finding
-            self._ach["picked_up_key"] = True
+        # Crafter returns integer counts; convert to bool
+        raw = info.get("achievements", {})
+        cur_ach = {a: bool(raw.get(a, 0)) for a in CRAFTER_ACHIEVEMENTS}
 
-        # Scan grid for key visibility and door
-        door_pos = None
-        door_is_open = False
-        ax, ay = inner.agent_pos
-        for j in range(inner.grid.height):
-            for i in range(inner.grid.width):
-                cell = inner.grid.get(i, j)
-                if cell is None:
-                    continue
-                if cell.type == 'key' and not self._ach["found_key"]:
-                    if ax == i and ay == j:
-                        self._ach["found_key"] = True
-                if cell is not None and cell.type == 'door':
-                    door_pos = (i, j)
-                    door_is_open = cell.is_open
-                    # reached_door: agent adjacent to door
-                    if abs(ax - i) + abs(ay - j) <= 1:
-                        self._ach["reached_door"] = True
-                    # opened_door: door just became open
-                    if door_is_open and not self._prev_door_open:
-                        self._ach["opened_door"] = True
-                    # crossed_door: agent is past the door's column
-                    if door_is_open and ax > i:
-                        self._ach["crossed_door"] = True
-                    break  # only one door in DoorKey
-            else:
-                continue
-            break
-
-        self._prev_door_open = door_is_open
-
-        # reached_goal: episode terminates successfully
-        if terminated and reward > 0:
-            self._ach["reached_goal"] = True
-
-        # Shaped reward: bonus for each newly unlocked achievement this step
+        # Shaped reward: one-time bonus per newly unlocked achievement
         shaped = sum(
-            DOORKEY_ACHIEVEMENT_REWARDS[k]
-            for k, v in self._ach.items()
-            if v and not prev_ach[k]
+            CRAFTER_ACHIEVEMENT_REWARDS[a]
+            for a in CRAFTER_ACHIEVEMENTS
+            if cur_ach[a] and not self._prev_ach.get(a, False)
         )
 
-        info["achievements"] = dict(self._ach)
-        info["eps"] = compute_eps(count_achievements(self._ach), 0.0)
+        self._prev_ach = cur_ach
+        info["achievements"] = cur_ach
+        info["eps"] = float(compute_eps(count_achievements(cur_ach), 0.0))
+
         return obs, reward + shaped, terminated, truncated, info
 
 
-class KeyCorridorAchievementWrapper(gym.Wrapper):
-    """Wraps MiniGrid-KeyCorridor-* to inject info["achievements"] and info["eps"]."""
-
-    def __init__(self, env):
-        super().__init__(env)
-        self._ach = {a: False for a in KEYCORRIDOR_ACHIEVEMENTS}
-        self._prev_open_doors = set()
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        self._ach = {a: False for a in KEYCORRIDOR_ACHIEVEMENTS}
-        self._prev_open_doors = set()
-        info["achievements"] = dict(self._ach)
-        info["eps"] = compute_eps(count_achievements(self._ach), 0.0)
-        return obs, info
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        inner = self.unwrapped
-        prev_ach = dict(self._ach)
-
-        # Detect what the agent is carrying
-        if inner.carrying is not None:
-            if inner.carrying.type == 'key':
-                self._ach["found_key"] = True  # fallback: can't carry without finding
-                self._ach["picked_up_key"] = True
-            elif inner.carrying.type == 'ball':
-                self._ach["found_target"] = True
-                self._ach["picked_up_target"] = True
-
-        # Scan grid for keys, doors, and balls
-        ax, ay = inner.agent_pos
-        curr_open_doors = set()
-        for j in range(inner.grid.height):
-            for i in range(inner.grid.width):
-                cell = inner.grid.get(i, j)
-                if cell is None:
-                    continue
-                if cell.type == 'key' and not self._ach["found_key"]:
-                    if ax == i and ay == j:
-                        self._ach["found_key"] = True
-                elif cell.type == 'door':
-                    if abs(ax - i) + abs(ay - j) <= 1:
-                        self._ach["reached_door"] = True
-                    if cell.is_open:
-                        curr_open_doors.add((i, j))
-                elif cell.type == 'ball' and not self._ach["found_target"]:
-                    # Ball visible when within 2 tiles (partial obs env)
-                    if abs(ax - i) + abs(ay - j) <= 2:
-                        self._ach["found_target"] = True
-
-        # Detect newly opened doors
-        if curr_open_doors - self._prev_open_doors:
-            self._ach["opened_door"] = True
-        self._prev_open_doors = curr_open_doors
-
-        # Shaped reward: bonus for each newly unlocked achievement this step
-        shaped = sum(
-            KEYCORRIDOR_ACHIEVEMENT_REWARDS[k]
-            for k, v in self._ach.items()
-            if v and not prev_ach[k]
-        )
-
-        info["achievements"] = dict(self._ach)
-        info["eps"] = compute_eps(count_achievements(self._ach), 0.0)
-        return obs, reward + shaped, terminated, truncated, info
+def make_crafter_env(**crafter_kwargs) -> gym.Env:
+    """Factory for a fully-wrapped Crafter gymnasium environment."""
+    return CrafterAchievementWrapper(CrafterGymnasiumWrapper(**crafter_kwargs))
