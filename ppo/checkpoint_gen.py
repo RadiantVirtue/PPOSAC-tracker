@@ -32,7 +32,7 @@ class MilestoneTracker:
             for ach in sorted(new):
                 path = (
                     f"{self.experiment_root}/checkpoints/{self._algo_subdir}/"
-                    f"milestone_first_{ach}_ep{episode_count}.pt"
+                    f"achievements/milestone_first_{ach}_ep{episode_count}.pt"
                 )
                 self._save_fn(model, global_step, episode_count, path)
                 print(f"Milestone checkpoint: {ach} at episode {episode_count}")

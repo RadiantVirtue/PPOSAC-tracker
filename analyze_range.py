@@ -1,18 +1,3 @@
-"""Analyze checkpoints in an experiment folder within an episode/step range.
-
-Expects the structure:
-    experiment_root/
-        seed_1/checkpoints/ppo/*.pt
-        seed_2/checkpoints/ppo/*.pt
-        ...
-
-If the folder contains no seed_* subdirs, the root itself is treated as a
-single seed folder.
-
-Usage:
-    python analyze_range.py --algorithm ppo [--shared.* --ppo.*]
-    python analyze_range.py --algorithm sac [--shared.* --sac.*]
-"""
 import os
 import re
 from dataclasses import dataclass, field
@@ -27,7 +12,7 @@ from shared.storage import load_analysis_results
 @dataclass
 class Shared:
     experiment_root: str = "experiment_root"
-    n_eval_episodes: int = 500
+    n_eval_episodes: int = 1000
     device: str = "cpu"
     split_mode: str = "percentile"
     percentile_x: int = 25
@@ -38,8 +23,8 @@ class Shared:
 
 @dataclass
 class PPO:
-    from_ep: int = 0
-    to_ep: int = -1
+    from_step: int = 0
+    to_step: int = 3_000_000
 
 
 @dataclass
@@ -56,7 +41,7 @@ class Args:
     sac: SAC = field(default_factory=SAC)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers 
 
 def _find_seed_dirs(root: str) -> list:
     results = []
@@ -96,11 +81,11 @@ def _find_checkpoints(seed_dir: str, algo: str) -> list:
     ckpt_dir = os.path.join(seed_dir, "checkpoints", algo)
     if not os.path.isdir(ckpt_dir):
         return []
-    paths = [
-        os.path.join(ckpt_dir, f)
-        for f in os.listdir(ckpt_dir)
-        if f.endswith(".pt")
-    ]
+    paths = []
+    for root, _, files in os.walk(ckpt_dir):
+        for f in files:
+            if f.endswith(".pt"):
+                paths.append(os.path.join(root, f))
     return sorted(paths, key=_key(algo))
 
 
@@ -133,10 +118,10 @@ def main():
     algo = args.algorithm
 
     if algo == "ppo":
-        from_val, to_val, unit = args.ppo.from_ep, args.ppo.to_ep, "ep"
+        from_val, to_val = args.ppo.from_step, args.ppo.to_step
     else:
-        from_val, to_val, unit = args.sac.from_step, args.sac.to_step, "step"
-    key_fn = _key(algo)
+        from_val, to_val = args.sac.from_step, args.sac.to_step
+    key_fn = _step
 
     seed_dirs = _find_seed_dirs(s.experiment_root)
     print(f"Found {len(seed_dirs)} seed dir(s) in '{s.experiment_root}'")
@@ -155,7 +140,7 @@ def main():
             selected.append(checkpoints[-1])
 
         to_desc = "∞" if to_val < 0 else to_val
-        print(f"\n=== Seed {seed} — {len(selected)}/{len(checkpoints)} checkpoints [{unit} {from_val}–{to_desc}] ===")
+        print(f"\n=== Seed {seed} — {len(selected)}/{len(checkpoints)} checkpoints [step {from_val}–{to_desc}] ===")
 
         for path in selected:
             label = label_from_path(path)
@@ -170,6 +155,7 @@ def main():
                 reason=label,
                 split_mode=s.split_mode,
                 percentile_x=s.percentile_x,
+                seed=seed,
             )
 
         checkpoint_results = []

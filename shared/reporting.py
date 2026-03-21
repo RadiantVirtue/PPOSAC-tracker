@@ -80,6 +80,56 @@ def _stage_key(label: str):
     return (2, label)
 
 
+def _classify_checkpoint(label: str) -> str:
+    """Return 'achievement' or 'periodic' based on label."""
+    if re.search(r"@ ep\d+", label):
+        return "achievement"
+    return "periodic"
+
+
+def _section_title(label: str, r: dict) -> str:
+    """Build per-checkpoint section title: name_epN_lowerX_upperY."""
+    ep = r.get("episode", 0)
+    lower = r.get("threshold_lower")
+    upper = r.get("threshold_upper")
+    lower_s = f"{lower:.3f}" if lower is not None else "?"
+    upper_s = f"{upper:.3f}" if upper is not None else "?"
+
+    m = re.match(r"^(.+?) @ ep\d+", label)
+    if m:
+        name = m.group(1).replace(" ", "_")
+        return f"{name}_ep{ep}_lower{lower_s}_upper{upper_s}"
+
+    m = re.search(r"(\d+)k", label)
+    if m:
+        step = int(m.group(1)) * 1000
+        return f"step_{step}_ep{ep}_lower{lower_s}_upper{upper_s}"
+
+    return f"ep{ep}_lower{lower_s}_upper{upper_s}"
+
+
+_SUMMARY_HEADER = (
+    "| Checkpoint | Episodes | Opp. Score | Coh. (S) | Coh. (F) "
+    "| Grad Mag (S) | Grad Mag (F) | Act. Sep. | Act. Cos. Dist. | RSA (ρ) |"
+)
+_SUMMARY_SEP = "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
+
+
+def _summary_row(label: str, r: dict) -> str:
+    return (
+        f"| {label} "
+        f"| {_fi(r.get('episode'))} "
+        f"| {_f(r.get('opposition_score'))} "
+        f"| {_f(r.get('coherence_success'))} "
+        f"| {_f(r.get('coherence_failure'))} "
+        f"| {_f(r.get('gradient_magnitude_success'))} "
+        f"| {_f(r.get('gradient_magnitude_failure'))} "
+        f"| {_f(r.get('activation_separation'))} "
+        f"| {_f(r.get('activation_cosine_distance'))} "
+        f"| {_f(r.get('rsa_alignment'))} |"
+    )
+
+
 # ── report generation ─────────────────────────────────────────────────────────
 
 def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment_root):
@@ -98,49 +148,22 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
     ]
 
     # ── summary table ─────────────────────────────────────────────────────────
-    lines += [
-        "## Summary",
-        "",
-        "| Checkpoint | Episodes | Opp. Score | Coh. (S) | Coh. (F) "
-        "| Grad Mag (S) | Grad Mag (F) | Act. Sep. | Act. Cos. Dist. |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+    lines += ["## Summary", "", _SUMMARY_HEADER, _SUMMARY_SEP]
     for label, r in checkpoint_results:
-        lines.append(
-            f"| {label} "
-            f"| {_fi(r.get('episode'))} "
-            f"| {_f(r.get('opposition_score'))} "
-            f"| {_f(r.get('coherence_success'))} "
-            f"| {_f(r.get('coherence_failure'))} "
-            f"| {_f(r.get('gradient_magnitude_success'))} "
-            f"| {_f(r.get('gradient_magnitude_failure'))} "
-            f"| {_f(r.get('activation_separation'))} "
-            f"| {_f(r.get('activation_cosine_distance'))} |"
-        )
+        lines.append(_summary_row(label, r))
     lines += [""]
 
     # ── per-checkpoint sections ───────────────────────────────────────────────
     for label, r in checkpoint_results:
-        lines += ["---", "", f"## {label}", ""]
-        if r.get("threshold_mu") is not None:
-            threshold_line = f"**Threshold μ:** {_f(r.get('threshold_mu'), 3)}"
-        else:
-            px = r.get("percentile_x", 25)
-            threshold_line = (
-                f"**Threshold:** bottom {px}% (≤ {_f(r.get('threshold_lower'), 3)}) | "
-                f"top {px}% (≥ {_f(r.get('threshold_upper'), 3)})"
-            )
-        lines += [
-            f"**Episodes:** {_fi(r.get('episode'))}  ",
-            f"**Success:** {_fi(r.get('n_success'))}  ",
-            f"**Failure:** {_fi(r.get('n_failure'))}  ",
-            threshold_line,
-            "",
-        ]
+        title = _section_title(label, r)
+        lines += ["---", "", f"## {title}", ""]
 
-        # gradient metrics
+        # merged metrics table
+        cs = r.get("cluster_stats") or {}
+        rsa_labels = r.get("rsa_labels") or []
+        rsa_stimuli = ", ".join(rsa_labels) if rsa_labels else "—"
         lines += [
-            "### Gradient Metrics", "",
+            "### Metrics", "",
             "| Metric | Value |",
             "|---|---|",
             f"| Opposition Score | {_f(r.get('opposition_score'))} |",
@@ -148,21 +171,30 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             f"| Coherence (Failure) | {_f(r.get('coherence_failure'))} |",
             f"| Gradient Magnitude (Success) | {_f(r.get('gradient_magnitude_success'))} |",
             f"| Gradient Magnitude (Failure) | {_f(r.get('gradient_magnitude_failure'))} |",
-            "",
-        ]
-
-        # activation metrics
-        cs = r.get("cluster_stats") or {}
-        lines += [
-            "### Activation Metrics", "",
-            "| Metric | Value |",
-            "|---|---|",
             f"| Activation Separation | {_f(r.get('activation_separation'))} |",
             f"| Cosine Distance | {_f(r.get('activation_cosine_distance'))} |",
             f"| Clusters | {_fi(cs.get('n_clusters'))} |",
             f"| Noise Fraction | {_f(cs.get('noise_fraction'))} |",
+            f"| RSA Alignment (ρ) | {_f(r.get('rsa_alignment'))} |",
+            f"| RSA Stimuli ({_fi(r.get('rsa_n_stimuli'))}) | {rsa_stimuli} |",
             "",
         ]
+
+    # ── aggregate tables ──────────────────────────────────────────────────────
+    ach_results = [(l, r) for l, r in checkpoint_results if _classify_checkpoint(l) == "achievement"]
+    per_results = [(l, r) for l, r in checkpoint_results if _classify_checkpoint(l) == "periodic"]
+
+    if ach_results:
+        lines += ["---", "", "## Achievement Checkpoints", "", _SUMMARY_HEADER, _SUMMARY_SEP]
+        for label, r in ach_results:
+            lines.append(_summary_row(label, r))
+        lines += [""]
+
+    if per_results:
+        lines += ["---", "", "## Periodic Checkpoints", "", _SUMMARY_HEADER, _SUMMARY_SEP]
+        for label, r in per_results:
+            lines.append(_summary_row(label, r))
+        lines += [""]
 
     return "\n".join(lines)
 

@@ -34,6 +34,7 @@ def analyze_checkpoint(
     reason: str = "",
     split_mode: str = "eps",
     percentile_x: int = 25,
+    seed: int = None,
 ):
     from shared.storage import save_analysis_results
 
@@ -46,6 +47,7 @@ def analyze_checkpoint(
         reason=reason,
         split_mode=split_mode,
         percentile_x=percentile_x,
+        seed=seed,
     )
 
     if algorithm == "ppo":
@@ -93,15 +95,17 @@ def main():
 def _analyze_ppo(args):
     from ppo.sampling import evaluate_frozen_policy, load_ppo_agent, partition
     from ppo.gradients import compute_group_gradient_with_coherence
-    from ppo.activations import run_activation_analysis
+    from ppo.activations import run_activation_analysis, PPO_HOOK_LAYER
     from shared.metrics import (
         opposition_score, coherence, gradient_magnitude,
         activation_separation, centroid_cosine_distance,
     )
+    from shared.rsa import run_rsa
 
     # Step 1: Sample & partition
-    episodes, eps_scores = evaluate_frozen_policy(
+    episodes, eps_scores, episodes_with_transitions = evaluate_frozen_policy(
         args.checkpoint_path, n_episodes=args.n_episodes, device=args.device,
+        seed=getattr(args, "seed", None),
     )
     success_eps, failure_eps, threshold = partition(
         episodes, eps_scores, mode=args.split_mode, percentile_x=args.percentile_x,
@@ -127,11 +131,16 @@ def _analyze_ppo(args):
     # Step 3: Activations (hook features_extractor.linear, 64-dim)
     act_results = run_activation_analysis(model, success_eps, failure_eps, device=args.device)
 
+    # Step 4: RSA — uses all evaluation episodes (not filtered by success/failure)
+    policy = model.policy.to(args.device)
+    rsa_results = run_rsa(policy, episodes_with_transitions, layer_name=PPO_HOOK_LAYER, device=args.device)
+    print(f"  RSA: {rsa_results['n_stimuli']} stimuli, alignment={rsa_results['alignment_score']}")
+
     return _build_result(
         episode_count, args, threshold,
         success_eps, failure_eps,
         raw_success, raw_failure, s_mb, f_mb,
-        act_results,
+        act_results, rsa_results,
     )
 
 
@@ -178,7 +187,7 @@ def _analyze_sac(args):
         episode_count, args, threshold,
         success_eps, failure_eps,
         raw_success, raw_failure, s_mb, f_mb,
-        act_results,
+        act_results, rsa_results=None,
     )
 
 
@@ -201,7 +210,7 @@ def _build_result(
     episode_count, args, threshold,
     success_eps, failure_eps,
     raw_success, raw_failure, s_mb, f_mb,
-    act_results,
+    act_results, rsa_results=None,
 ):
     from shared.metrics import (
         opposition_score, coherence, gradient_magnitude,
@@ -237,6 +246,12 @@ def _build_result(
         # ── Per-algorithm only (not cross-algorithm comparable) ───────────────
         "gradient_magnitude_success": gradient_magnitude(raw_success),
         "gradient_magnitude_failure": gradient_magnitude(raw_failure),
+        # ── RSA ───────────────────────────────────────────────────────────────
+        "rsa_alignment": rsa_results["alignment_score"] if rsa_results else None,
+        "rsa_n_stimuli": rsa_results["n_stimuli"] if rsa_results else 0,
+        "rsa_labels": rsa_results["labels"] if rsa_results else [],
+        "rsa_rdm": rsa_results["rdm"] if rsa_results else None,
+        "rsa_n_frames": rsa_results["n_frames"] if rsa_results else {},
     }
 
 

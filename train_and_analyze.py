@@ -16,20 +16,20 @@ import tyro
 @dataclass
 class Shared:
     """Arguments shared by both algorithms."""
-    seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
+    seeds: list[int] = field(default_factory=lambda: [2, 3, 4, 5])
     experiment_root: str = "experiment_root"
     n_eval_episodes: int = 500
     split_mode: str = "percentile"
     percentile_x: int = 25
     auto_push: bool = False
     device: str = "cpu"
-    analyze_every: int = 5
+    analyze_every: int = 1
 
 
 @dataclass
 class PPO:
     """PPO-specific training arguments."""
-    total_timesteps: int = 10_000_000
+    total_timesteps: int = 3000000
     checkpoint_freq: int = 50_000     # timesteps between checkpoints; 0 = off
     checkpoint_achievements: bool = True
     num_procs: int = 16

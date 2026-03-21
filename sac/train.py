@@ -123,6 +123,12 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
     ckpt_dir = os.path.join(args.experiment_root, "checkpoints", "sac")
     os.makedirs(ckpt_dir, exist_ok=True)
 
+    # ── Return logging ────────────────────────────────────────────────────────
+    logs_dir = os.path.join(args.experiment_root, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    returns_path = os.path.join(logs_dir, "sacreturnlog.txt")
+    ep_return_running = np.zeros(args.num_envs)
+
     # ── Training loop ─────────────────────────────────────────────────────────
     global_step     = 0
     episode_count   = 0
@@ -143,6 +149,7 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
             next_obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             global_step += 1
+            ep_return_running[i] += reward
 
             # Store raw transition for EpisodeStore
             ep_transitions[i].append({
@@ -167,6 +174,10 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
                 episode_count += 1
                 eps_score    = float(info.get("eps", 0.0))
                 achievements = info.get("achievements", {})
+
+                with open(returns_path, "a") as f:
+                    f.write(f"{ep_return_running[i]:.6f}\n")
+                ep_return_running[i] = 0.0
 
                 episode_store.add_episode(ep_transitions[i], eps_score)
                 ep_transitions[i] = []

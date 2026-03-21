@@ -15,32 +15,40 @@ import numpy as np
 
 from shared.achievements import (
     CRAFTER_ACHIEVEMENTS,
-    CRAFTER_ACHIEVEMENT_REWARDS,
     compute_eps,
     count_achievements,
 )
 
 # Suppress crafter's old-gym deprecation warning
 warnings.filterwarnings("ignore", message=".*Gym has been unmaintained.*")
+# Suppress gymnasium upgrade deprecation warnings
+warnings.filterwarnings("ignore", message=".*is not within the observation space.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Box bound precision.*", category=UserWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="gymnasium")
 
 
 class CrafterGymnasiumWrapper(gym.Env):
-    """Thin adapter: crafter.Env (old gym API) → gymnasium 5-tuple API."""
+    """Thin adapter: crafter.Env (old gym API) → gymnasium 5-tuple API.
+
+    seed controls the RNG used to draw a fresh world seed for every episode,
+    giving reproducible but varied world layouts across episodes.
+    """
 
     metadata = {"render_modes": []}
 
-    def __init__(self, **crafter_kwargs):
+    def __init__(self, seed=None, **crafter_kwargs):
         super().__init__()
         self._env = crafter.Env(**crafter_kwargs)
+        self._rng = np.random.default_rng(seed)
         self.observation_space = gym.spaces.Box(
             low=0, high=255, shape=(64, 64, 3), dtype=np.uint8
         )
         self.action_space = gym.spaces.Discrete(self._env.action_space.n)
 
     def reset(self, *, seed=None, **kwargs):
-        if seed is not None:
-            # crafter.Env doesn't support seeding via reset; ignore gracefully
-            pass
+        # Draw a fresh world seed from this env's RNG each episode
+        episode_seed = int(self._rng.integers(0, 2**31))
+        self._env._seed = episode_seed
         obs = self._env.reset()
         return obs, {}
 
@@ -61,19 +69,13 @@ class CrafterAchievementWrapper(gym.Wrapper):
     Crafter already returns cumulative per-episode achievement counts in info.
     This wrapper:
       - Converts counts → bool dict (achieved at least once this episode)
-      - Diffs against previous step to detect newly-unlocked achievements
-      - Adds shaped reward bonuses for each new unlock
-      - Injects info["eps"] = count_achievements(ach) + 0.9 * 0.0
+      - Injects info["eps"] = count_achievements(ach)
+    Reward is passed through unchanged (no shaping).
     """
-
-    def __init__(self, env):
-        super().__init__(env)
-        self._prev_ach: dict = {}
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        self._prev_ach = {a: False for a in CRAFTER_ACHIEVEMENTS}
-        info["achievements"] = dict(self._prev_ach)
+        info["achievements"] = {a: False for a in CRAFTER_ACHIEVEMENTS}
         info["eps"] = 0.0
         return obs, info
 
@@ -83,21 +85,12 @@ class CrafterAchievementWrapper(gym.Wrapper):
         # Crafter returns integer counts; convert to bool
         raw = info.get("achievements", {})
         cur_ach = {a: bool(raw.get(a, 0)) for a in CRAFTER_ACHIEVEMENTS}
-
-        # Shaped reward: one-time bonus per newly unlocked achievement
-        shaped = sum(
-            CRAFTER_ACHIEVEMENT_REWARDS[a]
-            for a in CRAFTER_ACHIEVEMENTS
-            if cur_ach[a] and not self._prev_ach.get(a, False)
-        )
-
-        self._prev_ach = cur_ach
         info["achievements"] = cur_ach
         info["eps"] = float(compute_eps(count_achievements(cur_ach), 0.0))
 
-        return obs, reward + shaped, terminated, truncated, info
+        return obs, reward, terminated, truncated, info
 
 
-def make_crafter_env(**crafter_kwargs) -> gym.Env:
+def make_crafter_env(seed=None, **crafter_kwargs) -> gym.Env:
     """Factory for a fully-wrapped Crafter gymnasium environment."""
-    return CrafterAchievementWrapper(CrafterGymnasiumWrapper(**crafter_kwargs))
+    return CrafterAchievementWrapper(CrafterGymnasiumWrapper(seed=seed, **crafter_kwargs))

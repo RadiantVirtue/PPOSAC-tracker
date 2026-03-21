@@ -50,6 +50,7 @@ class _TrainingCallback(BaseCallback):
     - saves milestone checkpoints on first-time achievements
     - saves periodic timestep-based checkpoints
     - forwards terminal episode info to should_stop
+    - logs per-episode returns to a txt file (append-only)
     """
 
     def __init__(self, args: Args, milestone_tracker: MilestoneTracker,
@@ -65,9 +66,29 @@ class _TrainingCallback(BaseCallback):
         self._last_ckpt_step = 0
         self._next_periodic_step = args.checkpoint_freq if args.checkpoint_freq > 0 else None
 
+        self._ep_return_running = None  # init lazily once n_envs is known
+        returns_dir = os.path.join(args.experiment_root, "logs")
+        os.makedirs(returns_dir, exist_ok=True)
+        self._returns_path = os.path.join(returns_dir, "pporeturnlog.txt")
+
     def _on_step(self) -> bool:
+        rewards = self.locals.get("rewards", [])
         dones = self.locals.get("dones", [])
         infos = self.locals.get("infos", [])
+
+        # Accumulate per-env returns
+        if self._ep_return_running is None:
+            self._ep_return_running = np.zeros(len(rewards))
+        self._ep_return_running += np.asarray(rewards)
+
+        completed = []
+        for i, done in enumerate(dones):
+            if done:
+                completed.append(self._ep_return_running[i])
+                self._ep_return_running[i] = 0.0
+        if completed:
+            with open(self._returns_path, "a") as f:
+                f.write("\n".join(f"{r:.6f}" for r in completed) + "\n")
 
         for done, info in zip(dones, infos):
             if done:
@@ -92,7 +113,7 @@ class _TrainingCallback(BaseCallback):
         ):
             path = (
                 f"{self.args.experiment_root}/checkpoints/ppo/"
-                f"periodic_step{self.num_timesteps}_ep{self.episode_count}.pt"
+                f"periodic/periodic_step{self.num_timesteps}_ep{self.episode_count}.pt"
             )
             save_checkpoint_ppo(self.model, self.num_timesteps, self.episode_count, path)
             if self.on_checkpoint_saved:
@@ -111,14 +132,15 @@ def main_ppo(args: Args, on_checkpoint_saved=None, should_stop=None):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    # Parallel environments
+    # Parallel environments — each gets a unique RNG seed derived from args.seed
     if args.num_procs > 1:
         vec_env = SubprocVecEnv(
-            [make_crafter_env for _ in range(args.num_procs)],
+            [lambda i=i: make_crafter_env(seed=args.seed * 100_000 + i)
+             for i in range(args.num_procs)],
             start_method="spawn",
         )
     else:
-        vec_env = DummyVecEnv([make_crafter_env])
+        vec_env = DummyVecEnv([lambda: make_crafter_env(seed=args.seed)])
 
     model = PPO(
         "CnnPolicy",
@@ -158,7 +180,7 @@ def main_ppo(args: Args, on_checkpoint_saved=None, should_stop=None):
     # Final checkpoint
     path = (
         f"{args.experiment_root}/checkpoints/ppo/"
-        f"final_step{model.num_timesteps}_ep{callback.episode_count}.pt"
+        f"periodic/final_step{model.num_timesteps}_ep{callback.episode_count}.pt"
     )
     save_checkpoint_ppo(model, model.num_timesteps, callback.episode_count, path)
     if on_checkpoint_saved:

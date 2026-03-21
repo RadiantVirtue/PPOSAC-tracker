@@ -82,6 +82,7 @@ def _run_seed(args: Args, seed: int) -> tuple:
             reason=label,
             split_mode=args.split_mode,
             percentile_x=args.percentile_x,
+            seed=seed,
         )
 
     checkpoint_results = []
