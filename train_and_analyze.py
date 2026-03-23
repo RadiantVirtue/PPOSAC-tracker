@@ -18,11 +18,11 @@ class Shared:
     """Arguments shared by both algorithms."""
     seeds: list[int] = field(default_factory=lambda: [2, 3, 4, 5])
     experiment_root: str = "experiment_root"
-    n_eval_episodes: int = 500
+    n_eval_episodes: int = 1000
     split_mode: str = "percentile"
     percentile_x: int = 25
     auto_push: bool = False
-    device: str = "cpu"
+    device: str = "cuda"
     analyze_every: int = 1
 
 
