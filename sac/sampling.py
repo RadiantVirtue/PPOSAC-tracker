@@ -1,4 +1,5 @@
 """SAC evaluation and episode partitioning (Crafter)."""
+import math
 import os
 from collections import namedtuple
 
@@ -6,7 +7,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from sac.network import DiscreteActor
+from sac.network import DiscreteActor, DiscreteCritic
 from sac.train import _obs_to_tensor
 from shared.tagged_buffer import EpisodeStore
 from shared.thresholding import partition_episodes
@@ -32,6 +33,24 @@ def load_sac_agent(checkpoint_path: str, device: str = "cpu"):
     actor.load_state_dict(ckpt["actor_state_dict"])
     actor.to(device).eval()
     return actor, ckpt.get("episode_count", 0)
+
+
+def load_sac_critics(checkpoint_path: str, device: str = "cpu"):
+    """Load frozen SAC critics (Q1, Q2) and entropy temperature α.
+
+    Returns:
+        (critic1, critic2, alpha)
+    """
+    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    n_actions = ckpt.get("action_dim", 17)
+    c1 = DiscreteCritic(n_actions=n_actions)
+    c1.load_state_dict(ckpt["critic1_state_dict"])
+    c1.to(device).eval()
+    c2 = DiscreteCritic(n_actions=n_actions)
+    c2.load_state_dict(ckpt["critic2_state_dict"])
+    c2.to(device).eval()
+    alpha = math.exp(ckpt.get("log_alpha", math.log(0.2)))
+    return c1, c2, alpha
 
 
 def evaluate_frozen_policy(

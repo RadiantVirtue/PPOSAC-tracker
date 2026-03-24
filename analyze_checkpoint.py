@@ -147,7 +147,7 @@ def _analyze_ppo(args):
 # ── SAC analysis ──────────────────────────────────────────────────────────────
 
 def _analyze_sac(args):
-    from sac.sampling import evaluate_frozen_policy, load_sac_agent, partition
+    from sac.sampling import evaluate_frozen_policy, load_sac_agent, load_sac_critics, partition
     from sac.gradients import compute_group_gradient_with_coherence
     from sac.activations import run_activation_analysis
     from shared.metrics import (
@@ -169,25 +169,36 @@ def _analyze_sac(args):
         return None
 
     actor, episode_count = load_sac_agent(args.checkpoint_path, device=args.device)
+    critic1, critic2, alpha = load_sac_critics(args.checkpoint_path, device=args.device)
+    print(f"  SAC alpha={alpha:.4f}")
 
-    # Step 2: Gradients (∇θ log π — directly from SAC actor)
+    # Step 2: Gradients (∇θ Σ_a π(a|s)[α log π(a|s) − min_Q(s,a)])
     s_batch = max(5, len(success_eps) // 10)
     f_batch = max(5, len(failure_eps) // 10)
     _norm_s, raw_success, s_mb = compute_group_gradient_with_coherence(
-        actor, success_eps, batch_size=s_batch, device=args.device, desc="Grads [success]"
+        actor, success_eps, batch_size=s_batch, device=args.device, desc="Grads [success]",
+        critic1=critic1, critic2=critic2, alpha=alpha,
     )
     _norm_f, raw_failure, f_mb = compute_group_gradient_with_coherence(
-        actor, failure_eps, batch_size=f_batch, device=args.device, desc="Grads [failure]"
+        actor, failure_eps, batch_size=f_batch, device=args.device, desc="Grads [failure]",
+        critic1=critic1, critic2=critic2, alpha=alpha,
     )
 
     # Step 3: Activations (hook encoder.linear, 64-dim)
     act_results = run_activation_analysis(actor, success_eps, failure_eps, device=args.device)
 
+    # Step 4: Moment of Reward Analysis
+    from sac.moment_of_reward import run_moment_of_reward_analysis
+    mor_results = run_moment_of_reward_analysis(
+        actor, success_eps, raw_failure_grad=raw_failure, device=args.device,
+        critic1=critic1, critic2=critic2, alpha=alpha,
+    )
+
     return _build_result(
         episode_count, args, threshold,
         success_eps, failure_eps,
         raw_success, raw_failure, s_mb, f_mb,
-        act_results, rsa_results=None,
+        act_results, rsa_results=None, mor_results=mor_results,
     )
 
 
@@ -210,7 +221,7 @@ def _build_result(
     episode_count, args, threshold,
     success_eps, failure_eps,
     raw_success, raw_failure, s_mb, f_mb,
-    act_results, rsa_results=None,
+    act_results, rsa_results=None, mor_results=None,
 ):
     from shared.metrics import (
         opposition_score, coherence, gradient_magnitude,
@@ -252,6 +263,8 @@ def _build_result(
         "rsa_labels": rsa_results["labels"] if rsa_results else [],
         "rsa_rdm": rsa_results["rdm"] if rsa_results else None,
         "rsa_n_frames": rsa_results["n_frames"] if rsa_results else {},
+        # ── Moment of Reward (SAC only) ───────────────────────────────────────
+        "moment_of_reward": mor_results,
     }
 
 

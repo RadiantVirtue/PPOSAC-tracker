@@ -57,6 +57,7 @@ class Args:
     checkpoint_freq: int = 0         # episodes between checkpoints; 0 = off
     checkpoint_step_freq: int = 5_000  # steps between checkpoints; 0 = off
     checkpoint_achievements: bool = True
+    max_checkpoints: int = 5         # keep N most recent checkpoints; 0 = keep all
     experiment_root: str = "experiment_root"
 
     # Set at runtime
@@ -207,6 +208,7 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
                         actor_opt, critic_opt,
                         episode_store, global_step, episode_count, args, ckpt_dir,
                     )
+                    _prune_checkpoints(ckpt_dir, args.max_checkpoints)
                     last_ckpt_ep   = episode_count
                     last_ckpt_step = global_step
                     if on_checkpoint_saved:
@@ -237,6 +239,7 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
                 actor_opt, critic_opt,
                 episode_store, global_step, episode_count, args, ckpt_dir,
             )
+            _prune_checkpoints(ckpt_dir, args.max_checkpoints)
             last_ckpt_step = global_step
             if on_checkpoint_saved:
                 on_checkpoint_saved(ckpt_path)
@@ -248,6 +251,7 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
             actor_opt, critic_opt,
             episode_store, global_step, episode_count, args, ckpt_dir,
         )
+        _prune_checkpoints(ckpt_dir, args.max_checkpoints)
         if on_checkpoint_saved:
             on_checkpoint_saved(ckpt_path)
 
@@ -343,6 +347,24 @@ def _obs_to_tensor(obs) -> torch.Tensor:
 def _reset_obs(env, seed):
     obs, _ = env.reset(seed=seed)
     return obs
+
+
+def _prune_checkpoints(ckpt_dir: str, max_checkpoints: int) -> None:
+    """Delete oldest checkpoints (and their _episodes.pkl siblings) so that at
+    most max_checkpoints .pt files remain in ckpt_dir."""
+    if max_checkpoints <= 0:
+        return
+    pts = sorted(
+        [f for f in os.listdir(ckpt_dir) if f.endswith(".pt")],
+        key=lambda f: int(f.split("_step")[-1].replace(".pt", "")),
+    )
+    for old in pts[:-max_checkpoints]:
+        old_path = os.path.join(ckpt_dir, old)
+        os.remove(old_path)
+        pkl_path = old_path.replace(".pt", "_episodes.pkl")
+        if os.path.exists(pkl_path):
+            os.remove(pkl_path)
+        print(f"  [sac] Pruned old checkpoint: {old_path}")
 
 
 def _save_checkpoint(actor, q1_net, q2_net, log_alpha,

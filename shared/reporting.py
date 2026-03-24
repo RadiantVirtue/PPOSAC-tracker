@@ -180,6 +180,27 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             "",
         ]
 
+        mor = r.get("moment_of_reward")
+        if mor:
+            lines += [
+                "### Moment of Reward (SAC)", "",
+                "| Subgroup | N transitions | Grad Mag | Coherence |",
+                "|---|---:|---:|---:|",
+                f"| Positive (r > 0) | {_fi(mor.get('n_positive'))} | {_f(mor.get('gradient_magnitude_positive'))} | {_f(mor.get('coherence_positive'))} |",
+                f"| Neutral  (r = 0) | {_fi(mor.get('n_neutral'))} | {_f(mor.get('gradient_magnitude_neutral'))} | {_f(mor.get('coherence_neutral'))} |",
+                f"| Negative (r < 0) | {_fi(mor.get('n_negative'))} | {_f(mor.get('gradient_magnitude_negative'))} | {_f(mor.get('coherence_negative'))} |",
+                "",
+                "| Comparison | Opp. Score |",
+                "|---|---:|",
+                f"| Pos vs Neutral   | {_f(mor.get('opp_pos_vs_neutral'))} |",
+                f"| Pos vs Negative  | {_f(mor.get('opp_pos_vs_negative'))} |",
+                f"| Neutral vs Neg.  | {_f(mor.get('opp_neutral_vs_negative'))} |",
+                f"| Pos vs Failure   | {_f(mor.get('opp_pos_vs_failure'))} |",
+                f"| Neutral vs Fail. | {_f(mor.get('opp_neutral_vs_failure'))} |",
+                f"| Neg. vs Failure  | {_f(mor.get('opp_negative_vs_failure'))} |",
+                "",
+            ]
+
     # ── aggregate tables ──────────────────────────────────────────────────────
     ach_results = [(l, r) for l, r in checkpoint_results if _classify_checkpoint(l) == "achievement"]
     per_results = [(l, r) for l, r in checkpoint_results if _classify_checkpoint(l) == "periodic"]
