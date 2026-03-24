@@ -16,8 +16,8 @@ import tyro
 @dataclass
 class Shared:
     """Arguments shared by both algorithms."""
-    seeds: list[int] = field(default_factory=lambda: [2, 3, 4, 5])
-    experiment_root: str = "experiment_root"
+    seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
+    experiment_root: str = "sac_experiment_root"
     n_eval_episodes: int = 1000
     split_mode: str = "percentile"
     percentile_x: int = 25
@@ -40,7 +40,7 @@ class PPO:
 @dataclass
 class SAC:
     """SAC-specific training arguments."""
-    total_timesteps: int = 10_000_000
+    total_timesteps: int = 3_000_000
     checkpoint_step_freq: int = 50_000
     checkpoint_achievements: bool = True
     num_envs: int = 16
@@ -50,7 +50,7 @@ class SAC:
 
 @dataclass
 class Args:
-    algorithm: str = "ppo"   # "ppo" or "sac"
+    algorithm: str = "sac"   # "ppo" or "sac"
     shared: Shared = field(default_factory=Shared)
     ppo: PPO = field(default_factory=PPO)
     sac: SAC = field(default_factory=SAC)

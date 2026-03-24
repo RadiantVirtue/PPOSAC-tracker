@@ -16,10 +16,12 @@ import copy
 import os
 import random
 from dataclasses import dataclass, field
+from functools import partial
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from gymnasium.vector import AsyncVectorEnv
 
 from sac.network import DiscreteActor, DiscreteCritic
 from sac.replay_buffer import ReplayBuffer
@@ -49,7 +51,7 @@ class Args:
     grad_clip: float = 10.0
 
     # Entropy
-    target_entropy: float = -2.833   # ≈ -log(1/17) * 0.98; auto-tune target
+    target_entropy: float = 1.42     # 0.5 * log(17); half of max entropy — stable equilibrium
     fixed_alpha: bool = False
     alpha_init: float = 0.2
 
@@ -62,6 +64,11 @@ class Args:
 
     # Set at runtime
     action_dim: int = field(default=17, repr=False)
+
+
+def _env_factory(seed: int):
+    """Module-level env factory — must be module-level for AsyncVectorEnv pickling on Windows."""
+    return make_crafter_env(seed=seed)
 
 
 # ── Public entrypoint ─────────────────────────────────────────────────────────
@@ -115,9 +122,10 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
     replay_buffer = ReplayBuffer(capacity=args.buffer_capacity)
     episode_store = EpisodeStore(max_size=args.buffer_capacity)
 
-    # ── Environments ──────────────────────────────────────────────────────────
-    envs = [make_crafter_env() for _ in range(args.num_envs)]
-    env_obs = [_reset_obs(env, args.seed + i * 10_000) for i, env in enumerate(envs)]
+    # ── Environments (subprocess-parallel) ────────────────────────────────────
+    env_fns = [partial(_env_factory, args.seed + i * 10_000) for i in range(args.num_envs)]
+    envs = AsyncVectorEnv(env_fns)
+    obs_batch, _ = envs.reset()                              # (N, H, W, C) uint8
     ep_transitions = [[] for _ in range(args.num_envs)]
 
     # ── Checkpoint directory ──────────────────────────────────────────────────
@@ -138,43 +146,56 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
     stop_requested  = False
 
     while global_step < args.total_timesteps and not stop_requested:
-        for i, env in enumerate(envs):
-            obs = env_obs[i]          # (H, W, C) uint8 numpy
+        # ── Batch actor forward pass (all envs at once) ────────────────────────
+        obs_t = torch.from_numpy(
+            obs_batch.astype(np.float32) / 255.0
+        ).permute(0, 3, 1, 2).to(device)                    # (N, 3, 64, 64)
 
-            # Choose action
-            with torch.no_grad():
-                obs_t = _obs_to_tensor(obs).unsqueeze(0).to(device)  # (1,3,64,64)
-                logits = actor(obs_t)
-                action = torch.distributions.Categorical(logits=logits).sample().item()
+        with torch.no_grad():
+            logits  = actor(obs_t)                           # (N, n_actions)
+            actions = torch.distributions.Categorical(logits=logits).sample()  # (N,)
 
-            next_obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
-            global_step += 1
-            ep_return_running[i] += reward
+        # ── Step all envs in parallel ──────────────────────────────────────────
+        next_obs_batch, rewards, terminated, truncated, infos = envs.step(
+            actions.cpu().numpy()
+        )
+        dones        = terminated | truncated
+        global_step += args.num_envs
 
-            # Store raw transition for EpisodeStore
+        # final_info holds each env's terminal-step info before auto-reset
+        final_infos = infos.get("final_info", [None] * args.num_envs)
+
+        for i in range(args.num_envs):
+            obs_i        = obs_batch[i]
+            action_i     = int(actions[i].item())
+            reward_i     = float(rewards[i])
+            terminated_i = bool(terminated[i])
+            done_i       = bool(dones[i])
+
+            ep_return_running[i] += reward_i
+
             ep_transitions[i].append({
-                "state":      _obs_to_tensor(obs).numpy(),       # (3,64,64) float32
-                "action":     int(action),
-                "reward":     float(reward),
-                "next_state": _obs_to_tensor(next_obs).numpy(),  # (3,64,64) float32
-                "terminal":   bool(terminated),
+                "state":      _obs_to_tensor(obs_i).numpy(),
+                "action":     action_i,
+                "reward":     reward_i,
+                "next_state": _obs_to_tensor(next_obs_batch[i]).numpy(),
+                "terminal":   terminated_i,
             })
 
-            # Store in replay buffer
             replay_buffer.add(
-                obs=_obs_to_tensor(obs),
-                action=torch.tensor(action, dtype=torch.long),
-                reward=torch.tensor(reward, dtype=torch.float32),
-                next_obs=_obs_to_tensor(next_obs),
-                terminated=torch.tensor(terminated, dtype=torch.bool),
-                done=torch.tensor(done, dtype=torch.bool),
+                obs=_obs_to_tensor(obs_i),
+                action=torch.tensor(action_i, dtype=torch.long),
+                reward=torch.tensor(reward_i, dtype=torch.float32),
+                next_obs=_obs_to_tensor(next_obs_batch[i]),
+                terminated=torch.tensor(terminated_i, dtype=torch.bool),
+                done=torch.tensor(done_i, dtype=torch.bool),
             )
 
-            if done:
+            if done_i:
                 episode_count += 1
-                eps_score    = float(info.get("eps", 0.0))
-                achievements = info.get("achievements", {})
+                info_i       = final_infos[i] if (final_infos[i] is not None) else {}
+                eps_score    = float(info_i.get("eps", 0.0))
+                achievements = info_i.get("achievements", {})
 
                 with open(returns_path, "a") as f:
                     f.write(f"{ep_return_running[i]:.6f}\n")
@@ -214,9 +235,7 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
                     if on_checkpoint_saved:
                         on_checkpoint_saved(ckpt_path)
 
-                env_obs[i] = _reset_obs(env, None)
-            else:
-                env_obs[i] = next_obs
+        obs_batch = next_obs_batch
 
         # ── Learning step ─────────────────────────────────────────────────────
         if replay_buffer.size >= args.batch_size and global_step >= args.warmup_steps:
@@ -255,8 +274,7 @@ def main_sac(args: Args, on_checkpoint_saved=None, should_stop=None):
         if on_checkpoint_saved:
             on_checkpoint_saved(ckpt_path)
 
-    for env in envs:
-        env.close()
+    envs.close()
     return episode_count, global_step
 
 
@@ -324,7 +342,7 @@ def _learn(actor, q1, q2, q1_tgt, q2_tgt, log_alpha,
             log_probs_ = F.log_softmax(logits_, dim=-1)
             entropy    = -(probs_ * log_probs_).sum(dim=-1)   # (B,)
 
-        alpha_loss = -(log_alpha * (entropy - args.target_entropy).detach()).mean()
+        alpha_loss = (log_alpha * (entropy - args.target_entropy).detach()).mean()
 
         alpha_opt.zero_grad()
         alpha_loss.backward()

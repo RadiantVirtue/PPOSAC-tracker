@@ -44,6 +44,7 @@ def _run_seed(args: Args, seed: int) -> tuple:
         checkpoint_achievements=args.checkpoint_achievements,
         num_envs=args.num_envs,
         experiment_root=seed_root,
+        max_checkpoints=0,   # keep all — analysis runs post-training over saved paths
     )
 
     saved_paths: list[str] = []
