@@ -8,7 +8,6 @@ import torch
 from tqdm import tqdm
 
 from sac.network import DiscreteActor, DiscreteCritic
-from sac.train import _obs_to_tensor
 from shared.tagged_buffer import EpisodeStore
 from shared.thresholding import partition_episodes
 from wrappers import make_crafter_env
@@ -16,6 +15,12 @@ from wrappers import make_crafter_env
 EpisodeData = namedtuple(
     "EpisodeData", ["observations", "actions", "rewards", "dones"]
 )
+
+
+def _obs_to_tensor(obs) -> torch.Tensor:
+    """(H, W, C) uint8 numpy → (C, H, W) float32 [0,1] tensor."""
+    arr = np.array(obs, dtype=np.float32) / 255.0
+    return torch.from_numpy(arr).permute(2, 0, 1)
 
 
 def load_sac_agent(checkpoint_path: str, device: str = "cpu"):

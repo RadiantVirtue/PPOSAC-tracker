@@ -30,7 +30,7 @@ class Args:
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     clip_range: float = 0.2
-    features_dim: int = 64       # NatureCNN output dim — must match SAC's hook dim
+    features_dim: int = 64       # NatureCNN output dim (64-dim encoder)
     checkpoint_freq: int = 50_000   # timesteps between periodic checkpoints (0 = off)
     checkpoint_achievements: bool = True
     experiment_root: str = "experiment_root"

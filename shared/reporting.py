@@ -14,9 +14,15 @@ def label_from_path(path: str) -> str:
     m = re.match(r"periodic_(\d+)_(\d+k)_ep(\d+)", name)
     if m:
         return f"Checkpoint {int(m.group(1))} — {m.group(2)} ({m.group(3)} episodes)"
+    m = re.match(r"periodic_step(\d+)_ep(\d+)", name)
+    if m:
+        return f"Step {int(m.group(1)):,}"
     m = re.match(r"final_(\d+k)_episodes", name)
     if m:
         return f"Final — {m.group(1)} episodes"
+    m = re.match(r"final_step(\d+)_ep(\d+)", name)
+    if m:
+        return "Final"
     m = re.match(r"milestone_first_(.+)_ep(\d+)", name)
     if m:
         return f"{m.group(1)} @ ep{m.group(2)}"
@@ -72,12 +78,30 @@ _AVG_METRICS = [
 
 def _stage_key(label: str):
     """Sortable alignment key from a checkpoint label."""
+    # SAC: "Checkpoint step 50,000 — 123 episodes"
+    m = re.search(r"Checkpoint step ([\d,]+)", label)
+    if m:
+        return (0, int(m.group(1).replace(",", "")))
+    # PPO periodic (clean label): "Step 1,000,000"
+    m = re.match(r"^Step ([\d,]+)$", label)
+    if m:
+        return (0, int(m.group(1).replace(",", "")))
+    # PPO periodic (raw filename fallback): "periodic_step1000000_ep5271"
+    m = re.match(r"periodic_step(\d+)_ep\d+", label)
+    if m:
+        return (0, int(m.group(1)))
+    # PPO periodic (old format): "Checkpoint N — 50k (123 episodes)"
     m = re.search(r"Checkpoint (\d+)", label)
     if m:
         return (0, int(m.group(1)))
-    if "Final" in label:
+    # Final checkpoints (raw filename fallback): "final_step3000320_ep14207"
+    if "Final" in label or re.match(r"final_step\d+_ep\d+", label):
         return (1, 0)
-    return (2, label)
+    # Milestone: "collect_wood @ ep123"  — strip episode, match on name only
+    m = re.match(r"^(.+?) @ ep\d+", label)
+    if m:
+        return (2, m.group(1))
+    return (3, label)
 
 
 def _classify_checkpoint(label: str) -> str:

@@ -1,0 +1,35 @@
+CUT FIGURES — JUSTIFICATIONS
+=============================
+
+clustering/ppo_clusters_seed* (15 UMAP scatter plots)
+  The per-seed activation cluster scatter plots are visually dense and difficult
+  to read at print resolution. More critically, they do not cleanly support any
+  single interpretive argument — cluster topology is hard to summarise and hard
+  to compare across training stages. The cluster count trend is adequately
+  communicated in one sentence of body text, making a dedicated figure redundant.
+
+clustering/ppo_periodic_cluster_n_clusters.png
+clustering/ppo_periodic_cluster_noise_fraction.png
+  Both cluster statistics show interesting secondary trends but do not directly
+  address any of the three research questions. A brief quantitative observation
+  in the results text (e.g. "cluster count grew from ~800 to ~1500 across
+  training") captures the relevant information without committing a full figure
+  slot to a metric that cannot be compared across algorithms.
+
+training_dynamics/ppo_periodic_n_success_failure.png
+  With a fixed percentile split, both the success and failure groups are always
+  exactly 250 episodes by design. The graph is a flat pair of horizontal lines
+  and carries no information. Including it would only confuse readers unfamiliar
+  with the sampling procedure into thinking the partition is adaptive.
+
+training_dynamics/ppo_periodic_episode_count.png
+  Episode count increases linearly with global step by construction — the graph
+  is effectively a straight line for every seed. It conveys no insight about
+  learning dynamics and would occupy figure space that is better used for metrics
+  that actually vary.
+
+training_dynamics/ppo_milestone_episode.png
+  The episode index at which a milestone is first reached is confounded with
+  total training time and tells us nothing about the quality of the learning
+  signal at that point. Any information it might contain is already implicit in
+  the milestone bar charts for the gradient and activation metrics.
