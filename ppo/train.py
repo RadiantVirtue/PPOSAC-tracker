@@ -18,7 +18,7 @@ from ppo.checkpoint_gen import MilestoneTracker
 @dataclass
 class Args:
     seed: int = 1
-    total_timesteps: int = 10_000_000
+    total_timesteps: int = 3_000_000
     num_procs: int = 16
     n_steps: int = 128           # rollout length per env
     batch_size: int = 256

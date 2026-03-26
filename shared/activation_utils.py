@@ -5,11 +5,21 @@ from hdbscan import HDBSCAN
 
 
 # extract activations from a named layer using a forward hook
-def extract_activations(model, observations, layer_name, device="cuda"):
+def extract_activations(model, observations, layer_name, device="cuda", flatten_output=False):
+    """Extract activations from a named layer.
+
+    Args:
+        flatten_output: if True, flatten each activation tensor via .flatten(1)
+                        before collecting. Required when hooking a conv layer that
+                        returns 4D output (e.g. Rainbow's 'convs' block).
+    """
     activations = []
 
     def hook_fn(module, input, output):
-        activations.append(output.detach().cpu())
+        act = output.detach().cpu()
+        if flatten_output:
+            act = act.flatten(1)
+        activations.append(act)
 
     layer = dict(model.named_modules())[layer_name]
     handle = layer.register_forward_hook(hook_fn)

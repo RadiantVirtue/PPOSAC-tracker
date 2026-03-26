@@ -1,14 +1,12 @@
-"""Unified analysis pipeline for PPO and SAC checkpoints.
+"""Unified analysis pipeline for PPO and Rainbow checkpoints.
 
-Computes gradient and activation metrics that are directly comparable
-between algorithms:
-  - opposition_score  (∇θ log π success vs failure)
+Computes gradient and activation metrics:
+  - opposition_score  (∇θ success vs failure)
   - coherence         (within-group gradient alignment)
-  - activation_separation / activation_cosine_distance  (64-dim centroids)
-  - cluster_stats     (UMAP + clustering on 64-dim activations)
+  - activation_separation / activation_cosine_distance  (centroid distances)
+  - cluster_stats     (UMAP + HDBSCAN clustering on activations)
 
-gradient_magnitude is reported per-algorithm but excluded from cross-algorithm
-comparison (absolute scale is not comparable between PPO and SAC).
+gradient_magnitude is reported per-algorithm only (absolute scale differs).
 
 RSA has been removed — pixel observations make object-index stimulus sets
 inapplicable to Crafter.
@@ -52,10 +50,10 @@ def analyze_checkpoint(
 
     if algorithm == "ppo":
         result = _analyze_ppo(args)
-    elif algorithm == "sac":
-        result = _analyze_sac(args)
+    elif algorithm == "rainbow":
+        result = _analyze_rainbow(args)
     else:
-        raise ValueError(f"Unknown algorithm: {algorithm!r}. Choose 'ppo' or 'sac'.")
+        raise ValueError(f"Unknown algorithm: {algorithm!r}. Choose 'ppo' or 'rainbow'.")
 
     if result is not None:
         result["reason"] = reason
@@ -73,7 +71,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Analyse a single checkpoint (gradients + activations)"
     )
-    parser.add_argument("--algorithm", required=True, choices=["ppo", "sac"])
+    parser.add_argument("--algorithm", required=True, choices=["ppo", "rainbow"])
     parser.add_argument("--checkpoint_path", required=True)
     parser.add_argument("--experiment_root", required=True)
     parser.add_argument("--n_episodes", type=int, default=500)
@@ -144,12 +142,13 @@ def _analyze_ppo(args):
     )
 
 
-# ── SAC analysis ──────────────────────────────────────────────────────────────
+# ── Rainbow analysis ──────────────────────────────────────────────────────────
 
-def _analyze_sac(args):
-    from sac.sampling import evaluate_frozen_policy, load_sac_agent, load_sac_critics, partition
-    from sac.gradients import compute_group_gradient_with_coherence
-    from sac.activations import run_activation_analysis
+def _analyze_rainbow(args):
+    from rainbow.sampling import evaluate_frozen_policy, load_rainbow_nets, partition
+    from rainbow.gradients import compute_group_gradient_with_coherence
+    from rainbow.activations import run_activation_analysis
+    from rainbow.moment_of_reward import run_moment_of_reward_analysis
     from shared.metrics import (
         opposition_score, coherence, gradient_magnitude,
         activation_separation, centroid_cosine_distance,
@@ -158,6 +157,7 @@ def _analyze_sac(args):
     # Step 1: Sample & partition
     episodes, eps_scores = evaluate_frozen_policy(
         args.checkpoint_path, n_episodes=args.n_episodes, device=args.device,
+        seed=getattr(args, "seed", None),
     )
     success_eps, failure_eps, threshold = partition(
         episodes, eps_scores, mode=args.split_mode, percentile_x=args.percentile_x,
@@ -168,30 +168,29 @@ def _analyze_sac(args):
         print("  Skipping: one group is empty")
         return None
 
-    actor, episode_count = load_sac_agent(args.checkpoint_path, device=args.device)
-    critic1, critic2, alpha = load_sac_critics(args.checkpoint_path, device=args.device)
-    print(f"  SAC alpha={alpha:.4f}")
+    online_net, target_net, episode_count, args_ns = load_rainbow_nets(
+        args.checkpoint_path, device=args.device
+    )
 
-    # Step 2: Gradients (∇θ Σ_a π(a|s)[α log π(a|s) − min_Q(s,a)])
+    # Step 2: Gradients — full offline distributional Bellman loss
     s_batch = max(5, len(success_eps) // 10)
     f_batch = max(5, len(failure_eps) // 10)
     _norm_s, raw_success, s_mb = compute_group_gradient_with_coherence(
-        actor, success_eps, batch_size=s_batch, device=args.device, desc="Grads [success]",
-        critic1=critic1, critic2=critic2, alpha=alpha,
+        online_net, success_eps, batch_size=s_batch, device=args.device,
+        desc="Grads [success]", target_net=target_net, args_ns=args_ns,
     )
     _norm_f, raw_failure, f_mb = compute_group_gradient_with_coherence(
-        actor, failure_eps, batch_size=f_batch, device=args.device, desc="Grads [failure]",
-        critic1=critic1, critic2=critic2, alpha=alpha,
+        online_net, failure_eps, batch_size=f_batch, device=args.device,
+        desc="Grads [failure]", target_net=target_net, args_ns=args_ns,
     )
 
-    # Step 3: Activations (hook encoder.linear, 64-dim)
-    act_results = run_activation_analysis(actor, success_eps, failure_eps, device=args.device)
+    # Step 3: Activations (hook convs, flatten to 1024-dim)
+    act_results = run_activation_analysis(online_net, success_eps, failure_eps, device=args.device)
 
     # Step 4: Moment of Reward Analysis
-    from sac.moment_of_reward import run_moment_of_reward_analysis
     mor_results = run_moment_of_reward_analysis(
-        actor, success_eps, raw_failure_grad=raw_failure, device=args.device,
-        critic1=critic1, critic2=critic2, alpha=alpha,
+        online_net, success_eps, raw_failure_grad=raw_failure, device=args.device,
+        target_net=target_net, args_ns=args_ns,
     )
 
     return _build_result(

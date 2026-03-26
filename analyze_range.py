@@ -28,17 +28,17 @@ class PPO:
 
 
 @dataclass
-class SAC:
+class Rainbow:
     from_step: int = 0
     to_step: int = -1
 
 
 @dataclass
 class Args:
-    algorithm: str = "ppo"   # "ppo" or "sac"
+    algorithm: str = "ppo"   # "ppo" or "rainbow"
     shared: Shared = field(default_factory=Shared)
     ppo: PPO = field(default_factory=PPO)
-    sac: SAC = field(default_factory=SAC)
+    rainbow: Rainbow = field(default_factory=Rainbow)
 
 
 # ── Helpers 
@@ -120,8 +120,8 @@ def main():
     if algo == "ppo":
         from_val, to_val = args.ppo.from_step, args.ppo.to_step
     else:
-        from_val, to_val = args.sac.from_step, args.sac.to_step
-    key_fn = _step
+        from_val, to_val = args.rainbow.from_step, args.rainbow.to_step
+    key_fn = _step if algo == "rainbow" else _ep
 
     seed_dirs = _find_seed_dirs(s.experiment_root)
     print(f"Found {len(seed_dirs)} seed dir(s) in '{s.experiment_root}'")

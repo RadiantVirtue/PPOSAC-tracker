@@ -1,10 +1,10 @@
-"""shared/graphing.py — PPO analysis visualisation.
+"""shared/graphing.py — PPO / Rainbow analysis visualisation.
 
 Usage:
-    python shared/graphing.py <experiment_root> [--dpi 150]
+    python shared/graphing.py <experiment_root> [--dpi 150] [--algorithm ppo|rainbow]
 
-Loads all seed_N/analysis_logs/ppo/*.json files, averages metrics by global
-step (NOT episode count), and writes PNGs to <experiment_root>/graphs/.
+Loads all seed_N/analysis_logs/{algorithm}/*.json files, averages metrics by
+global step (NOT episode count), and writes PNGs to <experiment_root>/graphs/.
 """
 
 from __future__ import annotations
@@ -125,8 +125,8 @@ def _find_seed_dirs(root: str) -> list[tuple[int, str]]:
     return results or [(0, root)]
 
 
-def load_all_data(experiment_root: str) -> dict:
-    """Load all PPO analysis JSONs from all seeds.
+def load_all_data(experiment_root: str, algorithm: str = "ppo") -> dict:
+    """Load all analysis JSONs from all seeds for the given algorithm.
 
     Returns:
         {
@@ -143,7 +143,7 @@ def load_all_data(experiment_root: str) -> dict:
 
     for seed_id, seed_path in seed_dirs:
         seed_ids.append(seed_id)
-        log_dir = os.path.join(seed_path, "analysis_logs", "ppo")
+        log_dir = os.path.join(seed_path, "analysis_logs", algorithm)
         if not os.path.isdir(log_dir):
             continue
         for fname in sorted(os.listdir(log_dir)):
@@ -472,9 +472,9 @@ def _plot_periodic_dual(
 
 # ── Return-log helpers ────────────────────────────────────────────────────────
 
-def _load_return_log(seed_dir: str) -> list[float]:
-    """Load per-episode returns from pporeturnlog.txt (one float per line)."""
-    path = os.path.join(seed_dir, "logs", "pporeturnlog.txt")
+def _load_return_log(seed_dir: str, algorithm: str = "ppo") -> list[float]:
+    """Load per-episode returns from {algorithm}returnlog.txt (one float per line)."""
+    path = os.path.join(seed_dir, "logs", f"{algorithm}returnlog.txt")
     if not os.path.exists(path):
         return []
     vals = []
@@ -553,6 +553,7 @@ def plot_return_vs_metrics(
     experiment_root: str,
     out_dir: str,
     dpi: int,
+    algorithm: str = "ppo",
 ):
     """Dual y-axis: smoothed return (left) vs analysis metric (right), per seed.
 
@@ -574,7 +575,7 @@ def plot_return_vs_metrics(
         if not seed_dir:
             continue
 
-        returns = _load_return_log(seed_dir)
+        returns = _load_return_log(seed_dir, algorithm)
         if not returns:
             print(f"  No return log for seed {seed_id}, skipping return-vs-metric graphs")
             continue
@@ -718,6 +719,7 @@ def plot_return_vs_metrics_averaged(
     experiment_root: str,
     out_dir: str,
     dpi: int,
+    algorithm: str = "ppo",
 ):
     """Dual y-axis averaged across all seeds: mean return (left) vs mean metric (right).
 
@@ -749,7 +751,7 @@ def plot_return_vs_metrics_averaged(
         sd = seed_dirs.get(seed_id)
         if not sd:
             continue
-        raw = _load_return_log(sd)
+        raw = _load_return_log(sd, algorithm)
         if not raw:
             continue
 
@@ -1588,6 +1590,7 @@ def plot_survival_zoom(
     out_dir: str,
     dpi: int,
     milestone_data: dict | None = None,
+    algorithm: str = "ppo",
 ):
     """Zoomed dual-axis plots around each survival achievement first unlock.
 
@@ -1627,7 +1630,7 @@ def plot_survival_zoom(
         seed_dir = seed_dirs.get(seed_id)
         if not seed_dir:
             continue
-        returns = _load_return_log(seed_dir)
+        returns = _load_return_log(seed_dir, algorithm)
         if not returns:
             continue
         ep_step: list[tuple[int, int]] = []
@@ -1779,19 +1782,22 @@ def main():
     import matplotlib.ticker
 
     parser = argparse.ArgumentParser(
-        description="Generate PPO analysis graphs from experiment_root data."
+        description="Generate analysis graphs from experiment_root data."
     )
     parser.add_argument("experiment_root", help="Path to the experiment root directory")
     parser.add_argument("--dpi", type=int, default=150, help="Output image DPI (default: 150)")
+    parser.add_argument("--algorithm", default="ppo", choices=["ppo", "rainbow"],
+                        help="Which algorithm's logs to load (default: ppo)")
     args = parser.parse_args()
 
     experiment_root = args.experiment_root
     dpi = args.dpi
+    algorithm = args.algorithm
     out_dir = os.path.join(experiment_root, "graphs")
     os.makedirs(out_dir, exist_ok=True)
 
-    print(f"Loading data from: {experiment_root}")
-    raw = load_all_data(experiment_root)
+    print(f"Loading data from: {experiment_root}  (algorithm={algorithm})")
+    raw = load_all_data(experiment_root, algorithm=algorithm)
     periodic = raw["periodic"]
     milestone_data = raw["milestone"]
     seed_ids = raw["seed_ids"]
@@ -1873,13 +1879,31 @@ def main():
 
     print("  [E] Return vs metric dual-axis graphs...")
     return_root = d("return_vs_metric")
-    plot_return_vs_metrics(periodic, seed_ids, milestone_data, experiment_root, return_root, dpi)
-    plot_return_vs_metrics_averaged(agg, periodic, seed_ids, milestone_data, experiment_root, return_root, dpi)
+    plot_return_vs_metrics(periodic, seed_ids, milestone_data, experiment_root, return_root, dpi,
+                           algorithm=algorithm)
+    plot_return_vs_metrics_averaged(agg, periodic, seed_ids, milestone_data, experiment_root, return_root, dpi,
+                                    algorithm=algorithm)
 
     print("  [F] Survival-event zoomed plots...")
     zoom_root = d("zoomed")
     plot_survival_zoom(agg, periodic, seed_ids, ach_steps, experiment_root, zoom_root, dpi,
-                       milestone_data=milestone_data)
+                       milestone_data=milestone_data, algorithm=algorithm)
+
+    if algorithm == "rainbow":
+        print("  [G] Rainbow Moment of Reward plots...")
+        from rainbow.moment_of_reward import plot_moment_of_reward
+        mor_root = d("moment_of_reward")
+        # Collect all MoR records from periodic data (one per checkpoint per seed)
+        mor_records = []
+        for step in sorted(periodic.keys()):
+            for seed_id, rec in periodic[step]:
+                mor = rec.get("moment_of_reward")
+                if mor:
+                    mor_records.append((step, mor))
+        if mor_records:
+            plot_moment_of_reward(mor_records, mor_root, dpi)
+        else:
+            print("    No moment_of_reward data found in periodic records")
 
     # Count all PNGs recursively
     total = 0

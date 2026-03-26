@@ -1,0 +1,151 @@
+Hyperparameter Defence
+======================
+
+PPO Hyperparameters
+-------------------
+
+lr = 2.5e-4
+  Original PPO paper (Schulman 2017) Atari default with Adam. Empirically robust across
+  environments; lower than SAC/Rainbow because on-policy gradient updates are already
+  conservative (clipped).
+
+n_steps = 128
+  16 envs x 128 steps = 2048 transitions per rollout -- same as CleanRL/SB3 Atari baseline.
+  Long enough for GAE bootstrap quality; short enough that data stays on-policy.
+
+batch_size = 256
+  2048 / 256 = 8 minibatches per rollout epoch. Standard SB3 ratio.
+
+n_epochs = 4
+  PPO paper default. More epochs -> off-policy data corruption in an on-policy method;
+  fewer -> wasted rollout.
+
+gae_lambda = 0.95
+  PPO paper default; bias-variance tradeoff between pure TD (0) and MC (1).
+
+ent_coef = 0.01
+  Small entropy bonus discourages premature policy collapse. Crafter's 17-action space
+  benefits from sustained exploration.
+
+vf_coef = 0.5
+  PPO paper default; balances actor vs. critic gradient scale.
+
+clip_range = 0.2
+  PPO paper default. Constrains per-step policy change without a KL penalty.
+
+max_grad_norm = 0.5
+  Conservative clipping appropriate for the on-policy setting where gradient magnitudes
+  are smaller than off-policy methods.
+
+features_dim = 64
+  Intentionally modest encoder width. Matches the SAC encoder dimension (64-dim
+  encoder.linear) so activation analyses across algorithms are comparable in
+  representation capacity.
+
+num_procs = 16
+  Standard parallel-env count; wall-clock speedup ~8-12x for lightweight envs like Crafter.
+
+gamma = 0.99
+  Standard RL discount. Crafter episodes can be several hundred steps; 0.99 allows credit
+  to propagate back ~100 steps, covering most causal horizons.
+
+total_timesteps = 10_000_000
+  Matches Rainbow's T_max exactly -- essential for fair algorithmic comparison at an equal
+  environment interaction budget.
+
+
+Rainbow Hyperparameters
+-----------------------
+
+-- Distribution parameters --
+
+atoms = 51
+  C51/Rainbow paper default. 51 atoms over [-10, 10] gives delta_z = 0.4 -- fine enough
+  to distinguish Crafter's {-1, 0, +1} reward events.
+
+V_min = -10, V_max = 10
+  Rainbow paper default. Crafter cumulative returns rarely exceed 5-6 per episode in
+  practice, so the range is conservatively wide. The symmetric range of 20 means the
+  support is never pathologically misaligned.
+
+noisy_std = 0.1
+  Factorised NoisyLinear sigma_0 -- matches the original Rainbow repo default. Lower than
+  the 0.5 used with independent Gaussian noise because factorised noise already provides
+  more gradient signal per parameter.
+
+-- Replay and training --
+
+memory_capacity = 500K
+  Halved from Rainbow's 1M Atari default to control memory footprint (3x64x64 uint8
+  frames ~12 KB/transition -> 500K x 12 KB ~= 6 GB). Provides ample diversity for PER
+  while remaining practical.
+
+replay_frequency = 4
+  Learn once every 4 environment steps -- Rainbow paper default. Balances sample
+  efficiency vs. computational cost; gives 2.5M gradient updates over 10M steps.
+
+batch_size = 32
+  Rainbow paper default. Small batches paired with PER's prioritised sampling give
+  frequent, targeted updates.
+
+learn_start = 20K
+  Warm-up period. Buffer fills with diverse transitions before any gradient updates.
+  Rainbow paper default.
+
+multi_step = 3
+  3-step returns -- Rainbow paper default. Better credit assignment than 1-step TD with
+  lower variance than MC; 3 steps spans roughly one Crafter action decision window.
+
+discount = 0.99
+  Matches PPO exactly -- essential for comparing learned value scales and gradient
+  magnitudes across algorithms.
+
+-- Optimizer --
+
+learning_rate = 6.25e-5
+  Rainbow paper default with Adam. Lower than PPO's 2.5e-4 because distributional
+  cross-entropy loss magnitudes are larger than scalar TD loss; a smaller LR prevents
+  overshooting.
+
+adam_eps = 1.5e-4
+  Unusually large compared to PyTorch default (1e-8). Prevents Adam from dividing by
+  vanishingly small second-moment estimates, which matters in distributional RL where
+  well-predicted distributions produce near-zero gradients for specific atoms.
+
+norm_clip = 10
+  Rainbow paper default. More permissive than PPO's 0.5 because off-policy distributional
+  gradients are well-behaved in magnitude; loose clipping rarely activates but guards
+  against occasional spikes.
+
+-- Target network --
+
+target_update = 8K steps
+  4x more frequent than Rainbow's Atari default (32K steps). At replay_frequency=4, this
+  is 2000 gradient steps between target syncs. Justified because Crafter has a simpler
+  state space than Atari and shorter episodes, so the target distribution needs to track
+  the online network more closely to avoid stale Bellman targets.
+
+priority_exponent = 0.5
+  PER alpha -- intermediate between uniform (0) and fully greedy (1). Rainbow paper default.
+
+priority_weight = 0.4 -> 1.0
+  PER beta, annealed to 1 over training. Starting low (0.4) allows biased updates early
+  when the priority distribution is most non-uniform; annealing corrects the bias
+  asymptotically. Rainbow paper default.
+
+reward_clip = 1
+  Crafter rewards are already in {-1, 0, +1} for all standard events, so this has
+  effectively no impact -- it is defensive only. Prevents hypothetical outlier rewards
+  from distorting the value support.
+
+
+Cross-Algorithm Notes
+---------------------
+
+Both algorithms use gamma = 0.99 and T_max = 10M steps -- the two most important
+parameters for fair comparison.
+
+The key incommensurability is encoder dimensionality: PPO's analysis hook produces 64-dim
+representations (actor.0), while Rainbow's hook at "convs" produces 1024-dim (4x4x64
+flattened). This is an architectural difference, not a hyperparameter choice. It should
+be noted explicitly in the dissertation when comparing activation geometry results.
