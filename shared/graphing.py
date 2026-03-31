@@ -84,8 +84,11 @@ def seed_color(seed_idx: int):
 # ── Parsing helpers ────────────────────────────────────────────────────────────
 
 def _parse_step(reason: str) -> int | None:
-    m = re.search(r"step(\d+)", reason)
-    return int(m.group(1)) if m else None
+    # Match "step" (case-insensitive) followed by digits, optionally separated by commas
+    m = re.search(r"step\s*([\d,]+)", reason, re.IGNORECASE)
+    if m:
+        return int(m.group(1).replace(",", ""))
+    return None
 
 
 def _parse_achievement(reason: str) -> str | None:
@@ -210,6 +213,13 @@ _SCALAR_METRICS = [
     "episode",
     "cluster_stats.n_clusters",
     "cluster_stats.noise_fraction",
+    # Weight-delta validation metrics (Rainbow only; None for PPO and first checkpoint)
+    "cos_uniform_success_delta",
+    "cos_is_success_delta",
+    "cos_reward_success_delta",
+    "cos_uniform_failure_delta",
+    "cos_is_failure_delta",
+    "cos_reward_failure_delta",
 ]
 
 
@@ -1009,6 +1019,14 @@ _PER_SEED_SPECS = [
     ("cluster_stats.noise_fraction","Noise Fraction",           "Activation Cluster Noise Fraction",   "brown",        None, "clustering"),
 ]
 
+# Weight-delta colour scheme: three shades of blue-purple per group
+C_DELTA_UNIFORM_S  = "#1a6bbf"   # uniform — success
+C_DELTA_IS_S       = "#7b2d8b"   # IS-weighted — success
+C_DELTA_REWARD_S   = "#c0507a"   # reward-weighted — success
+C_DELTA_UNIFORM_F  = "#5e9ecf"   # uniform — failure (lighter)
+C_DELTA_IS_F       = "#b566c8"   # IS-weighted — failure (lighter)
+C_DELTA_REWARD_F   = "#e08aa6"   # reward-weighted — failure (lighter)
+
 _SMOOTH_WINDOW = 3
 
 
@@ -1776,6 +1794,77 @@ def plot_survival_zoom(
             _save_fig(fig, out_dir, f"ppo_zoom_{safe_ach}_{safe_metric}.png", dpi)
 
 
+# ── Weight-delta alignment plots (Rainbow only) ────────────────────────────────
+
+def plot_weight_delta_alignment(
+    periodic: dict[int, list],
+    seed_ids: list[int],
+    ach_steps: dict[str, float],
+    out_dir: str,
+    dpi: int,
+):
+    """Two panels: cosine(gradient variant, Δθ) over training, for success and failure groups.
+
+    Each panel shows three lines (uniform, IS-weighted, reward-weighted) ± std across seeds.
+    The key signal is whether G_IS tracks Δθ better than G_uniform — if so, the IS
+    reconstruction is directionally validated. Absolute cosines are expected to be low
+    (Adam distortion); interpret relative differences, not magnitudes.
+
+    Note: data is only non-None from the second analyzed checkpoint onwards (first
+    checkpoint has no prior weights to compare against). None values are excluded
+    from averaging automatically.
+    """
+    _GROUPS = [
+        ("success", "Success Group",
+         [("cos_uniform_success_delta", "G_uniform",      C_DELTA_UNIFORM_S),
+          ("cos_is_success_delta",      "G_IS (primary)", C_DELTA_IS_S),
+          ("cos_reward_success_delta",  "G_reward",       C_DELTA_REWARD_S)]),
+        ("failure", "Failure Group",
+         [("cos_uniform_failure_delta", "G_uniform",      C_DELTA_UNIFORM_F),
+          ("cos_is_failure_delta",      "G_IS (primary)", C_DELTA_IS_F),
+          ("cos_reward_failure_delta",  "G_reward",       C_DELTA_REWARD_F)]),
+    ]
+
+    for group_key, group_title, specs in _GROUPS:
+        steps_sorted = sorted(periodic.keys())
+
+        fig, ax = plt.subplots(figsize=(11, 4.5))
+
+        any_data = False
+        for metric_key, label, color in specs:
+            means, stds, xs = [], [], []
+            for step in steps_sorted:
+                vals = [_get(rec, metric_key) for _, rec in periodic[step]]
+                vals = [v for v in vals if v is not None]
+                if vals:
+                    means.append(float(np.mean(vals)))
+                    stds.append(float(np.std(vals)) if len(vals) > 1 else 0.0)
+                    xs.append(step)
+                    any_data = True
+
+            if xs:
+                _make_shaded_line(ax, xs, means, stds, color, label)
+
+        if not any_data:
+            plt.close(fig)
+            continue
+
+        ax.axhline(0.0, color="grey", linestyle=":", linewidth=0.8, alpha=0.6)
+
+        tier_handles = _add_tier_completion_lines(ax, ach_steps) if ach_steps else []
+        metric_handles, _ = ax.get_legend_handles_labels()
+        ax.legend(handles=metric_handles + tier_handles, loc="upper left", fontsize=8)
+
+        _apply_xaxis_millions(ax)
+        ax.set_ylabel("Cosine Similarity (gradient vs \u0394\u03b8)")
+        ax.set_title(
+            f"Rainbow \u2014 Weight \u0394 Alignment ({group_title})\n"
+            "Relative G_IS > G_uniform at mid-training = IS correction directionally validated"
+        )
+
+        _save_fig(fig, out_dir, f"rainbow_weight_delta_{group_key}.png", dpi)
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -1896,7 +1985,7 @@ def main():
         # Collect all MoR records from periodic data (one per checkpoint per seed)
         mor_records = []
         for step in sorted(periodic.keys()):
-            for seed_id, rec in periodic[step]:
+            for _seed_id, rec in periodic[step]:
                 mor = rec.get("moment_of_reward")
                 if mor:
                     mor_records.append((step, mor))
@@ -1904,6 +1993,10 @@ def main():
             plot_moment_of_reward(mor_records, mor_root, dpi)
         else:
             print("    No moment_of_reward data found in periodic records")
+
+        print("  [H] Rainbow weight-delta alignment plots...")
+        delta_root = d("weight_delta")
+        plot_weight_delta_alignment(periodic, seed_ids, ach_steps, delta_root, dpi)
 
     # Count all PNGs recursively
     total = 0

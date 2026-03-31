@@ -128,6 +128,11 @@ class Agent():
         'discount': args.discount,
         'noisy_std': args.noisy_std,
         'n_actions': self.action_space,
+        # IS-weighting params (needed for offline gradient analysis)
+        'priority_exponent': args.priority_exponent,
+        'priority_weight':   args.priority_weight,
+        'T_max':             args.T_max,
+        'learn_start':       args.learn_start,
       }
     torch.save({
       'global_step': global_step,

@@ -3,7 +3,10 @@
 Checkpoint lifecycle (save → analyse → delete):
   - Training saves checkpoint_step{N}.pt every checkpoint_interval steps.
   - After saving, analysis runs immediately on that checkpoint.
-  - The checkpoint is deleted after analysis completes (disk space).
+  - Checkpoint N is deleted when checkpoint N+1 finishes analysis (not when N
+    finishes), so that N's weights are available for the weight-delta comparison
+    during N+1's analysis. At most one extra .pt file is on disk at any time.
+  - The final held checkpoint is deleted after training completes.
   - checkpoint_live.pt is always kept for resume (overwritten in-place).
 
 Adapted from ppo/train_and_analyze.py.
@@ -32,7 +35,7 @@ class Args:
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
     T_max: int = 10_000_000
     checkpoint_interval: int = 100_000     # steps between analysis checkpoints
-    experiment_root: str = "rainbow_experiment_root"
+    experiment_root: str = "rainbow_results"
     n_eval_episodes: int = 500
     split_mode: str = "percentile"
     percentile_x: int = 25
@@ -76,18 +79,38 @@ def _run_seed(args: Args, seed: int) -> tuple:
     analyzed_count = 0
     checkpoint_results = []
 
-    def on_checkpoint(path: str):
+    def on_checkpoint(path: str, prev_path=None, is_milestone=False):
         nonlocal analyzed_count
+
+        if is_milestone:
+            # Milestone: analyze immediately using prev_path for weight-delta (may be None).
+            # Deletion is handled by train.py immediately after this call returns.
+            label = label_from_path(path)
+            print(f"  [milestone] {label}")
+            analyze_checkpoint(
+                "rainbow", path, seed_root,
+                n_episodes=args.n_eval_episodes,
+                device=args.device,
+                reason=label,
+                split_mode=args.split_mode,
+                percentile_x=args.percentile_x,
+                seed=seed,
+                prev_checkpoint_path=prev_path,
+            )
+            basename = os.path.splitext(os.path.basename(path))[0]
+            json_path = os.path.join(seed_root, "analysis_logs", "rainbow", f"{basename}.json")
+            if os.path.exists(json_path):
+                r = load_analysis_results(json_path)
+                checkpoint_results.append((label, r))
+            return
+
+        # Periodic checkpoint
         saved_paths.append(path)
         analyzed_count += 1
 
-        # Analyse every N-th checkpoint only (skip intermediate ones)
+        # Analyse every N-th checkpoint only (skip intermediate ones).
+        # Deletion of skipped checkpoints is handled by train.py pointer rotation.
         if analyzed_count % args.analyze_every != 0:
-            # Delete without analysing to save disk
-            try:
-                os.remove(path)
-            except OSError:
-                pass
             return
 
         label = label_from_path(path)
@@ -100,6 +123,7 @@ def _run_seed(args: Args, seed: int) -> tuple:
             split_mode=args.split_mode,
             percentile_x=args.percentile_x,
             seed=seed,
+            prev_checkpoint_path=prev_path,
         )
 
         # Load result for report
@@ -108,17 +132,15 @@ def _run_seed(args: Args, seed: int) -> tuple:
         if os.path.exists(json_path):
             r = load_analysis_results(json_path)
             checkpoint_results.append((label, r))
-
-        # Delete checkpoint after analysis to free disk space
-        try:
-            os.remove(path)
-            print(f"  [ckpt] Deleted {os.path.basename(path)}")
-        except OSError:
-            pass
+        # Deletion of this checkpoint is handled by train.py pointer rotation
+        # when the next periodic checkpoint fires.
 
     print(f"=== Training Rainbow on Crafter (seed={seed}) ===")
     episode_count, _ = main_rainbow(rainbow_args, on_checkpoint_saved=on_checkpoint)
     print(f"Training complete: {episode_count:,} episodes\n")
+
+    # Final held periodic checkpoints (A and B) are deleted by train.py after the
+    # training loop exits — no cleanup needed here.
 
     checkpoint_results.sort(key=lambda x: x[1].get("episode", 0))
 

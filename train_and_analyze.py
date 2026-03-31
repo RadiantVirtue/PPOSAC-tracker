@@ -16,7 +16,7 @@ import tyro
 @dataclass
 class Shared:
     """Arguments shared across runs."""
-    seeds: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
+    seeds: list[int] = field(default_factory=lambda: [5])
     experiment_root: str = "experiment_root"
     n_eval_episodes: int = 1000
     split_mode: str = "percentile"
@@ -40,8 +40,8 @@ class PPO:
 @dataclass
 class Rainbow:
     """Rainbow-specific training arguments."""
-    T_max: int = 10_000_000
-    checkpoint_interval: int = 100_000
+    T_max: int = 3_000_000
+    checkpoint_interval: int = 50_000
     hidden_size: int = 512
     atoms: int = 51
     architecture: str = "canonical"

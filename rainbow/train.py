@@ -144,6 +144,14 @@ def _save_analysis(dqn, experiment_root, args, global_step, episode_count):
     return os.path.join(_ckpt_dir(experiment_root), name)
 
 
+def _save_milestone(dqn, experiment_root, args, global_step, episode_count, achievement):
+    """Save a named milestone checkpoint; return its path."""
+    name = f"milestone_first_{achievement}_ep{episode_count}.pt"
+    dqn.save(_ckpt_dir(experiment_root), name,
+             global_step=global_step, episode_count=episode_count, args=args)
+    return os.path.join(_ckpt_dir(experiment_root), name)
+
+
 def _delete_ckpt(path):
     try:
         os.remove(path)
@@ -168,9 +176,15 @@ def main_rainbow(args, on_checkpoint_saved=None):
 
     Args:
         args:                argparse.Namespace with all training hyperparameters.
-        on_checkpoint_saved: optional callable(path: str) called when an analysis
-                             checkpoint is saved. The callback should run analysis
-                             and then delete the checkpoint (or handle deletion itself).
+        on_checkpoint_saved: optional callable(path, prev_path=None, is_milestone=False)
+                             called when any checkpoint is saved.
+                             - path:         path to the saved checkpoint
+                             - prev_path:    path to the previous periodic checkpoint to use
+                                            for weight-delta (Δθ) computation; None means
+                                            skip weight-delta (early training or near-zero Δθ)
+                             - is_milestone: True for achievement-triggered checkpoints,
+                                            False for periodic step-interval checkpoints
+                             Deletion is handled by the training loop, not the callback.
 
     Returns:
         (episode_count, saved_paths) — total episodes and list of analysis checkpoint paths.
@@ -224,6 +238,12 @@ def main_rainbow(args, on_checkpoint_saved=None):
     ep_return = 0.0
     saved_paths = []
 
+    # Two-pointer state for weight-delta preservation across milestone checkpoints
+    seen_achievements = set()
+    periodic_A = None        # penultimate periodic checkpoint path
+    periodic_B = None        # last periodic checkpoint path
+    last_periodic_step = 0   # training step at which periodic_B was saved
+
     for T in trange(1 + resume_step, args.T_max + 1):
         if done:
             state = env.reset()
@@ -244,6 +264,22 @@ def main_rainbow(args, on_checkpoint_saved=None):
             episode_count += 1
             _log_return(args.experiment_root, ep_return)
 
+            # Achievement milestone checkpointing
+            cur_ach = {k: bool(v) for k, v in env.info.get("achievements", {}).items()}
+            new_ach = {a for a, v in cur_ach.items() if v} - seen_achievements
+            if new_ach and on_checkpoint_saved is not None:
+                seen_achievements.update(new_ach)
+                for ach in sorted(new_ach):
+                    skip_delta = (periodic_B is None) or (T - last_periodic_step < 10_000)
+                    m_path = _save_milestone(dqn, args.experiment_root, args, T,
+                                             episode_count, ach)
+                    on_checkpoint_saved(
+                        m_path,
+                        prev_path=None if skip_delta else periodic_B,
+                        is_milestone=True,
+                    )
+                    _delete_ckpt(m_path)
+
         if T >= args.learn_start:
             mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)
 
@@ -253,20 +289,35 @@ def main_rainbow(args, on_checkpoint_saved=None):
             if T % args.target_update == 0:
                 dqn.update_target_net()
 
-            # Save live checkpoint for resume
-            if T % args.checkpoint_interval == 0:
+            # Periodic checkpoint: save live + analysis, rotate two-pointer state
+            if args.checkpoint_interval > 0 and T % args.checkpoint_interval == 0:
                 _save_live(dqn, args.experiment_root, args, T, episode_count)
 
-            # Save named analysis checkpoint → callback → delete
-            if args.checkpoint_interval > 0 and T % args.checkpoint_interval == 0:
                 ckpt_path = _save_analysis(dqn, args.experiment_root, args, T, episode_count)
                 saved_paths.append(ckpt_path)
+
+                # Rotate pointers: A ← B, B ← new; delete old A
+                old_A = periodic_A
+                periodic_A = periodic_B
+                periodic_B = ckpt_path
+                last_periodic_step = T
+
+                if old_A and old_A != periodic_A and old_A != periodic_B:
+                    _delete_ckpt(old_A)
+
                 if on_checkpoint_saved is not None:
-                    on_checkpoint_saved(ckpt_path)
+                    on_checkpoint_saved(ckpt_path, prev_path=periodic_A, is_milestone=False)
 
         state = next_state
 
     env.close()
+
+    # Clean up the two held periodic checkpoints (A and B) that outlived training.
+    # These were kept alive for weight-delta computation but no further checkpoints will arrive.
+    for held in (periodic_A, periodic_B):
+        if held and os.path.exists(held):
+            _delete_ckpt(held)
+
     return episode_count, saved_paths
 
 

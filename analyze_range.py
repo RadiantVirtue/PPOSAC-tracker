@@ -19,6 +19,7 @@ class Shared:
     skip_existing: bool = True
     report: bool = True
     auto_push: bool = False
+    interrupted: bool = False  # resume a crashed run: report covers ALL analyzed checkpoints, not just the selected range
 
 
 @dataclass
@@ -142,9 +143,15 @@ def main():
         to_desc = "∞" if to_val < 0 else to_val
         print(f"\n=== Seed {seed} — {len(selected)}/{len(checkpoints)} checkpoints [step {from_val}–{to_desc}] ===")
 
+        prev_analyzed_path = None
         for path in selected:
             label = label_from_path(path)
             if s.skip_existing and _already_analyzed(path, seed_dir, algo):
+                # Update prev even on skip: ensures the next un-skipped checkpoint
+                # computes delta against the immediately prior path in the sorted list
+                # (whether or not that prior path was itself analyzed this run).
+                # The .pt file still exists on disk (analyze_range never deletes checkpoints).
+                prev_analyzed_path = path
                 print(f"  [skip] {label}")
                 continue
             print(f"  Analyzing: {label}")
@@ -156,10 +163,15 @@ def main():
                 split_mode=s.split_mode,
                 percentile_x=s.percentile_x,
                 seed=seed,
+                prev_checkpoint_path=prev_analyzed_path,
             )
+            prev_analyzed_path = path
 
+        # When resuming an interrupted run, report over all analyzed checkpoints
+        # (not just the selected range) so the seed report is complete.
+        report_paths_source = checkpoints if s.interrupted else selected
         checkpoint_results = []
-        for path in selected:
+        for path in report_paths_source:
             r = _load_result(path, seed_dir, algo)
             if r is not None:
                 checkpoint_results.append((label_from_path(path), r))
@@ -169,9 +181,12 @@ def main():
             all_seed_results[seed] = checkpoint_results
 
         if s.report and checkpoint_results:
-            from_k = from_val // 1000
-            to_k = to_val // 1000 if to_val >= 0 else "end"
-            seed_label = f"{seed}-{from_k}k-{to_k}k" if seed is not None else f"run-{from_k}k-{to_k}k"
+            if s.interrupted:
+                seed_label = str(seed) if seed is not None else "run"
+            else:
+                from_k = from_val // 1000
+                to_k = to_val // 1000 if to_val >= 0 else "end"
+                seed_label = f"{seed}-{from_k}k-{to_k}k" if seed is not None else f"run-{from_k}k-{to_k}k"
             md = generate_report(
                 checkpoint_results, "Crafter", seed,
                 checkpoint_results[-1][1].get("episode", 0),

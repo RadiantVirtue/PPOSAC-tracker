@@ -38,7 +38,7 @@ def load_ppo_agent(checkpoint_path: str, device: str = "cpu"):
 
 
 def evaluate_frozen_policy(
-    checkpoint_path: str, n_episodes: int = 1000, device: str = "cuda", seed: int = None,
+    checkpoint_path: str, n_episodes: int = 1000, device: str = "cpu", seed: int = None,
     num_envs: int = 16,
 ):
     """Run n_episodes with a frozen SB3 PPO policy on Crafter using parallel envs.
@@ -99,7 +99,10 @@ def evaluate_frozen_policy(
             # Gymnasium vector envs put terminal-step info under final_info[i];
             # mid-episode info is in infos with dict-of-arrays structure.
             if done:
-                step_info = (infos.get("final_info") or [None] * num_envs)[i] or {}
+                step_info = {
+                    "eps": float(infos["eps"][i]),
+                    "achievements": {a: bool(infos["achievements"][a][i]) for a in CRAFTER_ACHIEVEMENTS},
+                }
             else:
                 raw_ach = infos.get("achievements", {})
                 # dict-of-arrays → per-env dict
@@ -144,13 +147,5 @@ def evaluate_frozen_policy(
 
 
 def partition(episodes, eps_scores, mode: str = "eps", percentile_x: int = 25):
-    """Partition episodes into success / failure groups.
-
-    In percentile mode, raw episode returns (sum of shaped rewards) are used
-    as the ranking score and the middle episodes are discarded.
-    """
-    if mode == "percentile":
-        scores = [ep.rewards.sum().item() for ep in episodes]
-    else:
-        scores = eps_scores
-    return partition_episodes(episodes, scores, mode=mode, percentile_x=percentile_x)
+    """Partition episodes into success / failure groups by EPS score."""
+    return partition_episodes(episodes, eps_scores, mode=mode, percentile_x=percentile_x)

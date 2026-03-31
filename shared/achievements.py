@@ -63,6 +63,42 @@ CRAFTER_ACHIEVEMENT_REWARDS = {
 }
 
 
+ACHIEVEMENT_MATERIALS = {
+    "place_table":         {"wood": 2},
+    "make_wood_pickaxe":   {"wood": 1},
+    "make_wood_sword":     {"wood": 1},
+    "place_stone":         {"stone": 1},
+    "place_furnace":       {"stone": 4},
+    "make_stone_pickaxe":  {"stone": 3},
+    "make_stone_sword":    {"stone": 2},
+    "make_iron_pickaxe":   {"iron": 3},
+    "make_iron_sword":     {"iron": 2},
+    "place_plant":         {"sapling": 1},
+}
+
+
+def compute_materials_fraction(achievements_dict: dict, inventory: dict) -> float:
+    """Fraction of materials held toward the closest unachieved achievement.
+
+    For each unachieved achievement that has material prerequisites, computes
+    the ratio of materials held vs required (capped per material). Returns the
+    maximum ratio across all such achievements — i.e. how prepared the agent
+    is for the achievement it is closest to completing materially.
+    """
+    best = 0.0
+    for ach, required in ACHIEVEMENT_MATERIALS.items():
+        if achievements_dict.get(ach, False):
+            continue
+        total_needed = sum(required.values())
+        if total_needed == 0:
+            continue
+        held = sum(min(int(inventory.get(mat, 0)), need) for mat, need in required.items())
+        ratio = held / total_needed
+        if ratio > best:
+            best = ratio
+    return best
+
+
 def get_achievements_for_env(env_id: str) -> list:
     """Return achievement list for the given env_id (always Crafter now)."""
     return CRAFTER_ACHIEVEMENTS

@@ -5,11 +5,13 @@ Adapted from sac/sampling.py. Key differences:
   - Obs preprocessing: RGB (H,W,3) uint8 → (3,H,W) float32 [0,1] (same as SAC)
   - Action selection via ε-greedy instead of actor.get_distribution()
   - Returns both online_net and target_net for distributional gradient analysis
+  - evaluate_frozen_policy uses AsyncVectorEnv for parallel episode collection
 """
 import os
 from collections import namedtuple
 
 import argparse
+import gymnasium as gym
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -41,6 +43,11 @@ def _build_args_from_dict(args_dict: dict, n_actions: int, device: str) -> argpa
         multi_step=args_dict.get('multi_step', 3),
         discount=args_dict.get('discount', 0.99),
         noisy_std=args_dict.get('noisy_std', 0.1),
+        # IS-weighting params for offline gradient analysis
+        priority_exponent=args_dict.get('priority_exponent', 0.5),
+        priority_weight=args_dict.get('priority_weight', 0.4),
+        T_max=args_dict.get('T_max', int(10e6)),
+        learn_start=args_dict.get('learn_start', int(20e3)),
         device=torch.device(device),
         model=None,
     )
@@ -71,14 +78,15 @@ def load_rainbow_nets(checkpoint_path: str, device: str = "cpu"):
         p.requires_grad = False
 
     episode_count = ckpt.get('episode_count', 0)
-    return online_net, target_net, episode_count, args_ns
+    global_step = ckpt.get('global_step', 0)
+    return online_net, target_net, episode_count, global_step, args_ns
 
 
 def evaluate_frozen_policy(
     checkpoint_path: str, n_episodes: int = 500, device: str = "cpu",
-    seed: int = None,
+    seed: int = None, num_envs: int = 16,
 ):
-    """Run n_episodes with a frozen Rainbow DQN on Crafter.
+    """Run n_episodes with a frozen Rainbow DQN on Crafter using parallel envs.
 
     Observations stored in EpisodeData are (T, 3, H, W) float32 RGB tensors
     in [0, 1], matching the network's expected input format (history_length=3).
@@ -87,50 +95,76 @@ def evaluate_frozen_policy(
         episodes:   list of EpisodeData namedtuples
         eps_scores: list of float EPS scores (one per episode)
     """
-    online_net, _, _, args_ns = load_rainbow_nets(checkpoint_path, device)
+    online_net, _, _, _, args_ns = load_rainbow_nets(checkpoint_path, device)
     online_net.eval()
 
     support = torch.linspace(
         args_ns.V_min, args_ns.V_max, args_ns.atoms
     ).to(device)
 
-    env = make_crafter_env(seed=seed)
-    episodes = []
+    base_seed = seed if seed is not None else 0
+    vec_env = gym.vector.AsyncVectorEnv([
+        (lambda i: lambda: make_crafter_env(seed=base_seed + i * 10_000))(i)
+        for i in range(num_envs)
+    ])
+
+    # Per-env rolling buffers
+    env_obs     = [[] for _ in range(num_envs)]
+    env_actions = [[] for _ in range(num_envs)]
+    env_rewards = [[] for _ in range(num_envs)]
+    env_dones   = [[] for _ in range(num_envs)]
+
+    episodes   = []
     eps_scores = []
+    completed  = 0
 
-    for _ in tqdm(range(n_episodes), desc="Evaluating episodes", unit="ep"):
-        obs, info = env.reset()
-        ep_obs, ep_actions, ep_rewards, ep_dones = [], [], [], []
+    obs, _ = vec_env.reset()
+    pbar = tqdm(total=n_episodes, desc="Evaluating episodes", unit="ep")
 
-        done = False
-        while not done:
-            obs_t = _obs_to_tensor(obs).unsqueeze(0).to(device)  # (1,3,H,W)
-            with torch.no_grad():
-                # ε-greedy action selection (ε=0.001, eval mode uses weight_mu only)
-                if np.random.random() < 0.001:
-                    action = np.random.randint(0, online_net.action_space)
-                else:
-                    action = (online_net(obs_t) * support).sum(2).argmax(1).item()
+    while completed < n_episodes:
+        # Batched inference: (N,H,W,3) uint8 → (N,3,H,W) float32 [0,1]
+        obs_t = torch.from_numpy(obs).float().div_(255.0).permute(0, 3, 1, 2).to(device)
+        with torch.no_grad():
+            actions = (online_net(obs_t) * support).sum(2).argmax(1).cpu().numpy()
+        # ε-greedy (ε=0.001)
+        for i in range(num_envs):
+            if np.random.random() < 0.001:
+                actions[i] = np.random.randint(0, online_net.action_space)
 
-            ep_obs.append(_obs_to_tensor(obs))   # (3,H,W) float32
-            ep_actions.append(int(action))
+        for i in range(num_envs):
+            env_obs[i].append(obs[i].copy())
+            env_actions[i].append(int(actions[i]))
 
-            obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
-            ep_rewards.append(float(reward))
-            ep_dones.append(float(done))
+        obs, rewards, terminateds, truncateds, infos = vec_env.step(actions)
 
-        eps_scores.append(float(info.get("eps", 0.0)))
-        episodes.append(
-            EpisodeData(
-                observations=torch.stack(ep_obs),            # (T, 3, H, W) float32
-                actions=torch.tensor(ep_actions, dtype=torch.long),
-                rewards=torch.tensor(ep_rewards, dtype=torch.float32),
-                dones=torch.tensor(ep_dones, dtype=torch.float32),
-            )
-        )
+        for i in range(num_envs):
+            done = bool(terminateds[i]) or bool(truncateds[i])
+            env_rewards[i].append(float(rewards[i]))
+            env_dones[i].append(float(done))
 
-    env.close()
+            if done and completed < n_episodes:
+                # Stack obs: (T,H,W,3) uint8 → (T,3,H,W) float32 [0,1]
+                obs_arr = np.array(env_obs[i], dtype=np.float32) / 255.0
+                obs_tensor = torch.from_numpy(obs_arr).permute(0, 3, 1, 2)  # (T,3,H,W)
+
+                episodes.append(EpisodeData(
+                    observations=obs_tensor,
+                    actions=torch.tensor(env_actions[i], dtype=torch.long),
+                    rewards=torch.tensor(env_rewards[i], dtype=torch.float32),
+                    dones=torch.tensor(env_dones[i], dtype=torch.float32),
+                ))
+                eps_scores.append(float(infos["eps"][i]))
+                completed += 1
+                pbar.update(1)
+
+                # Reset this env's buffers
+                env_obs[i]     = []
+                env_actions[i] = []
+                env_rewards[i] = []
+                env_dones[i]   = []
+
+    pbar.close()
+    vec_env.close()
     return episodes, eps_scores
 
 

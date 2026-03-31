@@ -86,11 +86,13 @@ def run_moment_of_reward_analysis(
             print(f"  MOR [{label}]: only {len(group_eps)} episodes — skipping gradient computation")
             return None, None, None
         bs = max(2, len(group_eps) // 5)
-        _norm, raw_mean, batch_grads = compute_group_gradient_with_coherence(
+        result = compute_group_gradient_with_coherence(
             online_net, group_eps, batch_size=bs, device=device,
             desc=f"MOR [{label}]",
             target_net=target_net, args_ns=args_ns,
         )
+        raw_mean = result["uniform"]["raw"]
+        batch_grads = result["uniform"]["batch_grads"]
         return raw_mean, gradient_magnitude(raw_mean), coherence(batch_grads)
 
     raw_pos, mag_pos, coh_pos = _compute(pos_eps, "positive")

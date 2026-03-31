@@ -16,6 +16,7 @@ import numpy as np
 from shared.achievements import (
     CRAFTER_ACHIEVEMENTS,
     compute_eps,
+    compute_materials_fraction,
     count_achievements,
 )
 
@@ -86,7 +87,9 @@ class CrafterAchievementWrapper(gym.Wrapper):
         raw = info.get("achievements", {})
         cur_ach = {a: bool(raw.get(a, 0)) for a in CRAFTER_ACHIEVEMENTS}
         info["achievements"] = cur_ach
-        info["eps"] = float(compute_eps(count_achievements(cur_ach), 0.0))
+        inventory = info.get("inventory", {})
+        materials_frac = compute_materials_fraction(cur_ach, inventory)
+        info["eps"] = float(compute_eps(count_achievements(cur_ach), materials_frac))
 
         return obs, reward, terminated, truncated, info
 

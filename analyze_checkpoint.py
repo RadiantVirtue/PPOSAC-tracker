@@ -30,9 +30,10 @@ def analyze_checkpoint(
     n_episodes: int = 500,
     device: str = "cpu",
     reason: str = "",
-    split_mode: str = "eps",
+    split_mode: str = "percentile",
     percentile_x: int = 25,
     seed: int = None,
+    prev_checkpoint_path: str = None,
 ):
     from shared.storage import save_analysis_results
 
@@ -46,6 +47,7 @@ def analyze_checkpoint(
         split_mode=split_mode,
         percentile_x=percentile_x,
         seed=seed,
+        prev_checkpoint_path=prev_checkpoint_path,
     )
 
     if algorithm == "ppo":
@@ -77,7 +79,7 @@ def main():
     parser.add_argument("--n_episodes", type=int, default=500)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--reason", default="")
-    parser.add_argument("--split_mode", default="eps", choices=["eps", "percentile"])
+    parser.add_argument("--split_mode", default="percentile", choices=["eps", "percentile"])
     parser.add_argument("--percentile_x", type=int, default=25)
     args = parser.parse_args()
 
@@ -144,6 +146,74 @@ def _analyze_ppo(args):
 
 # ── Rainbow analysis ──────────────────────────────────────────────────────────
 
+def _compute_joint_is_weights(online_net, target_net, episodes, args_ns, global_step, device):
+    """Forward-only pass over a combined episode pool for joint IS normalisation.
+
+    Computes IS weights with a single shared priority denominator across all
+    provided episodes, so that gradient magnitudes from different sub-groups
+    (e.g. success vs failure) are on a comparable scale.
+
+    Args:
+        online_net:   DQN online network (eval mode, no grad).
+        target_net:   DQN target network (eval mode, no grad).
+        episodes:     combined list of EpisodeData (e.g. success_eps + failure_eps).
+        args_ns:      argparse.Namespace with distribution + IS parameters.
+        global_step:  checkpoint training step (for beta annealing).
+        device:       torch device string.
+
+    Returns:
+        list of (T,) float32 tensors — per-episode IS weights, one per episode,
+        in the same order as `episodes`. Episodes with T <= 1 get None.
+    """
+    import torch
+    from rainbow.gradients import _forward_per_loss, _compute_is_weights
+
+    atoms    = args_ns.atoms
+    Vmin     = args_ns.V_min
+    Vmax     = args_ns.V_max
+    delta_z  = (Vmax - Vmin) / (atoms - 1)
+    support  = torch.linspace(Vmin, Vmax, atoms).to(device)
+    n        = args_ns.multi_step
+    gamma    = args_ns.discount
+
+    alpha       = getattr(args_ns, 'priority_exponent', 0.5)
+    beta_start  = getattr(args_ns, 'priority_weight',   0.4)
+    T_max       = getattr(args_ns, 'T_max',             int(10e6))
+    learn_start = getattr(args_ns, 'learn_start',       int(20e3))
+    anneal_frac = max(0.0, min(1.0, (global_step - learn_start) / max(T_max - learn_start, 1)))
+    beta        = beta_start + (1.0 - beta_start) * anneal_frac
+
+    losses_per_ep = []
+    with torch.no_grad():
+        for episode in episodes:
+            if len(episode.rewards) > 1:
+                per_loss = _forward_per_loss(
+                    episode, online_net, target_net,
+                    support, Vmin, Vmax, delta_z, atoms, gamma, n, device
+                )
+                losses_per_ep.append(per_loss.detach())
+            else:
+                losses_per_ep.append(None)
+
+    valid = [l for l in losses_per_ep if l is not None]
+    if not valid:
+        return [None] * len(episodes)
+
+    all_losses    = torch.cat(valid)
+    all_is_w      = _compute_is_weights(all_losses, alpha, beta)
+
+    result = []
+    ptr = 0
+    for l in losses_per_ep:
+        if l is not None:
+            T = len(l)
+            result.append(all_is_w[ptr:ptr + T])
+            ptr += T
+        else:
+            result.append(None)
+    return result
+
+
 def _analyze_rainbow(args):
     from rainbow.sampling import evaluate_frozen_policy, load_rainbow_nets, partition
     from rainbow.gradients import compute_group_gradient_with_coherence
@@ -168,36 +238,64 @@ def _analyze_rainbow(args):
         print("  Skipping: one group is empty")
         return None
 
-    online_net, target_net, episode_count, args_ns = load_rainbow_nets(
+    online_net, target_net, episode_count, global_step, args_ns = load_rainbow_nets(
         args.checkpoint_path, device=args.device
     )
 
-    # Step 2: Gradients — full offline distributional Bellman loss
+    # Step 2: Gradients — full offline distributional Bellman loss (three variants)
+    # Joint IS weight computation: normalise over success+failure pool together so that
+    # gradient_magnitude_*_is values share a common denominator and are cross-comparable.
+    joint_is_weights = _compute_joint_is_weights(
+        online_net, target_net, success_eps + failure_eps,
+        args_ns, global_step, args.device,
+    )
+    is_w_success = joint_is_weights[:len(success_eps)]
+    is_w_failure = joint_is_weights[len(success_eps):]
+
     s_batch = max(5, len(success_eps) // 10)
     f_batch = max(5, len(failure_eps) // 10)
-    _norm_s, raw_success, s_mb = compute_group_gradient_with_coherence(
+    grad_s = compute_group_gradient_with_coherence(
         online_net, success_eps, batch_size=s_batch, device=args.device,
         desc="Grads [success]", target_net=target_net, args_ns=args_ns,
+        global_step=global_step, precomputed_is_weights=is_w_success,
     )
-    _norm_f, raw_failure, f_mb = compute_group_gradient_with_coherence(
+    grad_f = compute_group_gradient_with_coherence(
         online_net, failure_eps, batch_size=f_batch, device=args.device,
         desc="Grads [failure]", target_net=target_net, args_ns=args_ns,
+        global_step=global_step, precomputed_is_weights=is_w_failure,
     )
+
+    # Unpack uniform variant for backward-compatible downstream calls
+    raw_success = grad_s["uniform"]["raw"]
+    s_mb        = grad_s["uniform"]["batch_grads"]
+    raw_failure = grad_f["uniform"]["raw"]
+    f_mb        = grad_f["uniform"]["batch_grads"]
 
     # Step 3: Activations (hook convs, flatten to 1024-dim)
     act_results = run_activation_analysis(online_net, success_eps, failure_eps, device=args.device)
 
-    # Step 4: Moment of Reward Analysis
+    # Step 4: Moment of Reward Analysis (uses uniform raw_failure for comparison)
     mor_results = run_moment_of_reward_analysis(
         online_net, success_eps, raw_failure_grad=raw_failure, device=args.device,
         target_net=target_net, args_ns=args_ns,
     )
+
+    # Step 5: Weight-delta empirical validation (requires prev checkpoint)
+    delta_metrics = None
+    if getattr(args, "prev_checkpoint_path", None):
+        from rainbow.weight_delta import compute_weight_delta_metrics
+        prev_net, _, _, _, _ = load_rainbow_nets(args.prev_checkpoint_path, device=args.device)
+        delta_metrics = compute_weight_delta_metrics(
+            prev_net.state_dict(), online_net.state_dict(), grad_s, grad_f
+        )
 
     return _build_result(
         episode_count, args, threshold,
         success_eps, failure_eps,
         raw_success, raw_failure, s_mb, f_mb,
         act_results, rsa_results=None, mor_results=mor_results,
+        grad_meta_success=grad_s, grad_meta_failure=grad_f,
+        delta_metrics=delta_metrics,
     )
 
 
@@ -221,13 +319,33 @@ def _build_result(
     success_eps, failure_eps,
     raw_success, raw_failure, s_mb, f_mb,
     act_results, rsa_results=None, mor_results=None,
+    grad_meta_success=None, grad_meta_failure=None,
+    delta_metrics=None,
 ):
     from shared.metrics import (
         opposition_score, coherence, gradient_magnitude,
         activation_separation, centroid_cosine_distance,
     )
 
-    return {
+    # ── IS-weighted metrics (Rainbow only, None for PPO / fallback) ───────────
+    def _safe_raw(meta, variant):
+        if meta is None:
+            return None
+        return meta.get(variant, {}).get("raw")
+
+    def _safe_mb(meta, variant):
+        if meta is None:
+            return []
+        return meta.get(variant, {}).get("batch_grads", [])
+
+    raw_s_is = _safe_raw(grad_meta_success, "is_weighted")
+    raw_f_is = _safe_raw(grad_meta_failure, "is_weighted")
+    mb_s_is  = _safe_mb(grad_meta_success, "is_weighted")
+    mb_f_is  = _safe_mb(grad_meta_failure, "is_weighted")
+    mb_s_rw  = _safe_mb(grad_meta_success, "reward_weighted")
+    mb_f_rw  = _safe_mb(grad_meta_failure, "reward_weighted")
+
+    result = {
         "episode": episode_count,
         "algorithm": args.algorithm,
         "split_mode": args.split_mode,
@@ -237,7 +355,7 @@ def _build_result(
         "threshold_upper": threshold[1] if isinstance(threshold, tuple) else None,
         "n_success": len(success_eps),
         "n_failure": len(failure_eps),
-        # ── Cross-algorithm comparable metrics ────────────────────────────────
+        # ── Uniform-weighted metrics (cross-algorithm comparable) ─────────────
         "opposition_score": (
             opposition_score(raw_success, raw_failure)
             if len(failure_eps) >= MIN_FAILURE_FOR_OPPOSITION else None
@@ -253,7 +371,6 @@ def _build_result(
             act_results["centroids"]["failure"],
         ),
         "cluster_stats": act_results["cluster_stats"],
-        # ── Per-algorithm only (not cross-algorithm comparable) ───────────────
         "gradient_magnitude_success": gradient_magnitude(raw_success),
         "gradient_magnitude_failure": gradient_magnitude(raw_failure),
         # ── RSA ───────────────────────────────────────────────────────────────
@@ -262,9 +379,44 @@ def _build_result(
         "rsa_labels": rsa_results["labels"] if rsa_results else [],
         "rsa_rdm": rsa_results["rdm"] if rsa_results else None,
         "rsa_n_frames": rsa_results["n_frames"] if rsa_results else {},
-        # ── Moment of Reward (SAC only) ───────────────────────────────────────
+        # ── Moment of Reward (Rainbow only) ───────────────────────────────────
         "moment_of_reward": mor_results,
+        # ── IS-weighted metrics (Rainbow only) ────────────────────────────────
+        "opposition_score_is": (
+            opposition_score(raw_s_is, raw_f_is)
+            if (raw_s_is is not None and raw_f_is is not None
+                and len(failure_eps) >= MIN_FAILURE_FOR_OPPOSITION)
+            else None
+        ),
+        "coherence_success_is":     coherence(mb_s_is) if mb_s_is else None,
+        "coherence_failure_is":     coherence(mb_f_is) if mb_f_is else None,
+        "gradient_magnitude_success_is": gradient_magnitude(raw_s_is) if raw_s_is is not None else None,
+        "gradient_magnitude_failure_is": gradient_magnitude(raw_f_is) if raw_f_is is not None else None,
+        # ── Reward-proxy metrics (Rainbow only) ───────────────────────────────
+        "coherence_success_reward": coherence(mb_s_rw) if mb_s_rw else None,
+        "coherence_failure_reward": coherence(mb_f_rw) if mb_f_rw else None,
+        # ── Funnel cosines (Rainbow only) ─────────────────────────────────────
+        "cos_uniform_is_success":  grad_meta_success["cos_uniform_is"] if grad_meta_success else None,
+        "cos_uniform_is_failure":  grad_meta_failure["cos_uniform_is"] if grad_meta_failure else None,
+        "cos_is_reward_success":   grad_meta_success["cos_is_reward"]  if grad_meta_success else None,
+        "cos_is_reward_failure":   grad_meta_failure["cos_is_reward"]  if grad_meta_failure else None,
+        # ── IS reference info ─────────────────────────────────────────────────
+        "beta_used":              grad_meta_success["beta_used"]      if grad_meta_success else None,
+        "n_transitions_success":  grad_meta_success["n_transitions"]  if grad_meta_success else None,
+        "n_transitions_failure":  grad_meta_failure["n_transitions"]  if grad_meta_failure else None,
+        # ── Weight-delta empirical validation (Rainbow only, None if first checkpoint) ─
+        # Use .get() per key: handles both delta_metrics=None (no prev checkpoint) and
+        # delta_metrics={"cos_is_success": None, ...} (prev provided but variant unavailable).
+        **{k: (delta_metrics or {}).get(v) for k, v in (
+            ("cos_uniform_success_delta", "cos_uniform_success"),
+            ("cos_is_success_delta",      "cos_is_success"),
+            ("cos_reward_success_delta",  "cos_reward_success"),
+            ("cos_uniform_failure_delta", "cos_uniform_failure"),
+            ("cos_is_failure_delta",      "cos_is_failure"),
+            ("cos_reward_failure_delta",  "cos_reward_failure"),
+        )},
     }
+    return result
 
 
 if __name__ == "__main__":
