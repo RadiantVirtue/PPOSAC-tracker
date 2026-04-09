@@ -52,12 +52,48 @@ RQ1 — Structural Gradient Signatures:
   Metrics: gradient coherence, opposition score, gradient magnitude,
            cos(G_IS, G_uniform), all compared across checkpoints.
 
+  FINDINGS (Rainbow seeds 1–2, 3M steps each):
+  cos(G_uniform, G_IS) = 0.953–0.999 across all training stages and both
+  groups. G_IS tracks G_uniform nearly exactly in direction throughout
+  training. Both opposition scores remain high and follow the same
+  trajectory (G_IS typically 0.05–0.2 lower than G_uniform, but both
+  well above 0.7 for most checkpoints). Rainbow gradient coherence is
+  consistently high: 0.83–0.98 (success) and 0.64–0.97 (failure).
+  PPO contrast: opposition score averages 0.35–0.59 across 5 seeds with
+  high variance (±0.1–0.4); coherence 0.05–0.4. The gradient signature
+  in on-policy PPO is far weaker and less stable than Rainbow.
+  ANSWER: Yes — the geometric differentiation of success/failure gradients
+  is robust to PER IS re-weighting throughout training. The directional
+  structure established by G_uniform is preserved under G_IS.
+
 RQ2 — PER and Directional Influence:
   To what extent does PER dictate direction in a learning signal (rather
   than merely scaling its magnitude), and can this influence be
   empirically validated via weight-delta (Δθ) analysis?
   Metrics: cos(G_IS, G_uniform), cos(G_IS, G_reward),
            empirical validation via cos(G_IS, Δθ) vs cos(G_uniform, Δθ).
+
+  FINDINGS (Rainbow seeds 1–2):
+  cos(G_uniform, G_IS) = 0.95–0.999 — IS re-weighting does not
+  substantially redirect gradient direction; it acts predominantly as a
+  magnitude scalar.
+  cos(G_IS, G_reward) = 0.15–0.97 for success (typically 0.7–0.95),
+  indicating IS weighting has a partial tendency to amplify reward-proximal
+  transitions but this is inconsistent across checkpoints.
+  Weight-delta validation (empirical):
+    cos(G_uniform, Δθ) ≈ –0.015 to +0.015
+    cos(G_IS,      Δθ) ≈ –0.015 to +0.015
+    cos(G_reward,  Δθ) ≈ –0.017 to +0.038
+  All three variants are near zero — none predicts the actual weight update
+  direction. This is a significant methodological finding: single-checkpoint
+  gradient snapshots do not capture the actual parameter trajectory, likely
+  because 50k training steps involve thousands of mini-batches that average
+  out the directional signal, and the distributional Bellman loss creates
+  gradient geometry that the episodic evaluation proxy does not capture.
+  ANSWER: PER does not substantially redirect gradient direction relative to
+  uniform sampling. The weight-delta validation fails for all variants,
+  limiting causal claims about PER's directional influence from these
+  proxies alone — itself a methodologically important finding.
 
 RQ3 — Representational Emergence:
   Does the directional coherence of the learning signal (G_variant)
@@ -67,6 +103,24 @@ RQ3 — Representational Emergence:
            distance, RSA alignment score (Spearman ρ vs ground-truth
            functional RDM).
 
+  FINDINGS (Rainbow seeds 1–2; PPO seeds 1–5):
+  Rainbow activation separation grows steadily: ~0.04–0.3 early →
+  ~1.0–1.4 by 3M steps, correlating with persistently high gradient
+  coherence (0.83–0.97). Rainbow RSA sub-categories at later checkpoints:
+  fighting ρ ≈ 0.10–0.33 (weakly positive), resource/crafting/housing near
+  zero. Overall RSA is not computed for Rainbow (rsa_alignment = None) —
+  a gap in the pipeline.
+  PPO activation separation grows larger (0.8–1.0 → 3.2–5.0), but RSA
+  develops more clearly: starts negative (–0.4 to –0.6 early) and grows
+  to positive (0.15–0.39) by ~1.5M steps, despite PPO coherence being
+  only 0.05–0.4.
+  ANSWER: High gradient coherence in Rainbow correlates with growing
+  activation separation, consistent with representational emergence. But
+  weak RSA scores suggest structure is not strongly semantically organised.
+  PPO shows stronger RSA despite lower coherence, indicating gradient
+  coherence alone does not predict RSA quality — the relationship is
+  algorithm-specific and not a clean longitudinal predictor.
+
 RQ4 — Moment of Reward Analysis (MORA):
   How is the learning signal distributed across the temporal phases of a
   successful trajectory (positive, neutral, and negative transitions),
@@ -75,6 +129,26 @@ RQ4 — Moment of Reward Analysis (MORA):
   Metrics: Moment-of-Reward sub-partitioning (r>0 vs r=0 vs r<0 within
            the success pool), per-subgroup gradient magnitude and
            coherence, cos(G_IS_r_zero, G_uniform_r_zero).
+
+  FINDINGS (Rainbow seeds 1–2, representative mid-to-late training):
+  Transition counts per checkpoint: positive ~800–4,000;
+  neutral ~42,000–70,000; negative ~1,300–1,900.
+  Gradient magnitudes: positive 5–10× neutral (coherence 0.96–0.99);
+  neutral low (0.17–0.42, coherence 0.97–0.99); negative moderate
+  (2.9–7.0, coherence 0.64–0.99).
+  Opposition scores: Positive vs Neutral = –0.37 to –0.87 (strongly
+  opposing directions — reward-moment and neutral-step gradients push
+  the network in near-opposite directions throughout training).
+  Positive vs Failure = –0.57 to +0.93 (highly variable).
+  Neutral vs Failure = –0.65 to +0.35 (mostly mixed/slightly negative).
+  ANSWER: Rainbow's credit assignment strongly amplifies immediate reward
+  transitions in gradient magnitude (5–10× neutral) with opposing gradient
+  directions between reward and neutral steps, confirming over-weighting of
+  immediate reward feedback. However, neutral transitions dominate by count
+  (~45k–70k vs ~800–4k positive), so their collective contribution to the
+  mean gradient is substantial despite individually low magnitude. This
+  tension is precisely the credit assignment challenge in Crafter's
+  sparse-reward environment.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,6 +191,7 @@ PPOSAC-tracker/
 ├── analyze_checkpoint.py       — standalone per-checkpoint analysis pipeline
 ├── analyze_range.py            — batch analysis over a range of checkpoints
 ├── redo_ppo_rsa.py             — re-run RSA on existing PPO analysis JSONs (4-group update)
+├── redo_rainbow_report.py      — regenerate Rainbow markdown reports from existing JSONs
 ├── check_rainbow.py            — 10-stage verification suite for Rainbow pipeline
 ├── wrappers.py                 — Crafter environment adapters
 │
