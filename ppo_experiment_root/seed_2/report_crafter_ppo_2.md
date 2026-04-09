@@ -4,7 +4,7 @@
 **Seed:** 2  
 **Total episodes:** 15,435  
 **Experiment root:** `ppo_experiment_root\seed_2`  
-**Generated:** 2026-03-30 20:29
+**Generated:** 2026-04-09 12:07
 
 ## Summary
 
@@ -88,8 +88,36 @@
 | Step 2,850,000 | 14,727 | 0.2867 | 0.0952 | -0.0064 | 0.1532 | 0.1457 | 4.3136 | 0.0257 | 0.0000 |
 | Step 2,900,000 | 14,958 | 0.4923 | 0.2885 | 0.1301 | 0.2818 | 0.2912 | 4.4301 | 0.0253 | 0.0098 |
 | Step 2,950,000 | 15,196 | 0.6773 | 0.2416 | 0.0584 | 0.2362 | 0.2090 | 2.9728 | 0.0179 | 0.0000 |
-| Step 3,000,000 | 15,435 | 0.0097 | 0.1116 | 0.0130 | 0.1784 | 0.1750 | 3.3856 | 0.0201 | -0.0881 |
 | Final | 15,435 | 0.0970 | 0.0219 | 0.0444 | 0.1204 | 0.1822 | 3.6031 | 0.0216 | 0.0783 |
+| Step 3,000,000 | 15,435 | 0.0097 | 0.1116 | 0.0130 | 0.1784 | 0.1750 | 3.3856 | 0.0201 | -0.0881 |
+
+---
+
+## Longitudinal Analysis
+
+### RQ1 — G_uniform Opposition Score Over Training
+
+![RQ1 — G_uniform Opposition Score Over Training](graphs/rq/rq1_opposition_seed2.png)
+
+*PPO has no G_IS analog (on-policy, no PER). The low magnitude (typically 0.1–0.6) and high variance across checkpoints contrasts sharply with Rainbow's stable 0.7–0.98 range, reflecting the noisier gradient structure of on-policy learning.*
+
+### RQ3 — Activation Separation and RSA Alignment Co-trajectory
+
+![RQ3 — Activation Separation and RSA Alignment Co-trajectory](graphs/rq/rq3_activation_rsa_seed2.png)
+
+*Top: activation separation (Euclidean centroid distance) grows from ~0.8 to 3–5 over training. Bottom: RSA alignment ρ starts negative (–0.4 to –0.6 early) and transitions to positive (0.15–0.35) by mid/late training, indicating emerging semantic structure.*
+
+### RQ3 — Gradient Coherence and Magnitude Over Training
+
+![RQ3 — Gradient Coherence and Magnitude Over Training](graphs/rq/rq3_coherence_seed2.png)
+
+*Top: gradient coherence for success and failure groups — PPO coherence is consistently low (0.05–0.4) throughout, contrasting with Rainbow's 0.83–0.97. Bottom: gradient magnitude success vs failure — similar magnitudes with slight failure-group advantage in early training.*
+
+### RQ3 — Coherence vs Representational Structure (Scatter)
+
+![RQ3 — Coherence vs Representational Structure (Scatter)](graphs/rq/rq3_coherence_vs_rsa_seed2.png)
+
+*Each point is one periodic checkpoint. Colour encodes training stage (early=dark, late=bright). A positive slope would support the RQ3 prediction that high gradient coherence predicts better semantic structure. Weak/absent correlation is itself informative.*
 
 ---
 
@@ -1653,26 +1681,6 @@
 
 ---
 
-## ep15435_lower9.000_upper11.000
-
-### Metrics
-
-| Metric | Value |
-|---|---|
-| Opposition Score | 0.0097 |
-| Coherence (Success) | 0.1116 |
-| Coherence (Failure) | 0.0130 |
-| Gradient Magnitude (Success) | 0.1784 |
-| Gradient Magnitude (Failure) | 0.1750 |
-| Activation Separation | 3.3856 |
-| Cosine Distance | 0.0201 |
-| Clusters | 1,472 |
-| Noise Fraction | 0.3202 |
-| RSA Alignment (ρ) | -0.0881 |
-| RSA Stimuli (8) | Coal, Iron, Skeleton, Stone, Stone Pickaxe, Wood, Wood Pickaxe, Zombie |
-
----
-
 ## ep15435_lower8.900_upper11.000
 
 ### Metrics
@@ -1689,6 +1697,26 @@
 | Clusters | 1,427 |
 | Noise Fraction | 0.2912 |
 | RSA Alignment (ρ) | 0.0783 |
+| RSA Stimuli (8) | Coal, Iron, Skeleton, Stone, Stone Pickaxe, Wood, Wood Pickaxe, Zombie |
+
+---
+
+## ep15435_lower9.000_upper11.000
+
+### Metrics
+
+| Metric | Value |
+|---|---|
+| Opposition Score | 0.0097 |
+| Coherence (Success) | 0.1116 |
+| Coherence (Failure) | 0.0130 |
+| Gradient Magnitude (Success) | 0.1784 |
+| Gradient Magnitude (Failure) | 0.1750 |
+| Activation Separation | 3.3856 |
+| Cosine Distance | 0.0201 |
+| Clusters | 1,472 |
+| Noise Fraction | 0.3202 |
+| RSA Alignment (ρ) | -0.0881 |
 | RSA Stimuli (8) | Coal, Iron, Skeleton, Stone, Stone Pickaxe, Wood, Wood Pickaxe, Zombie |
 
 ---
@@ -1782,5 +1810,5 @@
 | Step 2,850,000 | 14,727 | 0.2867 | 0.0952 | -0.0064 | 0.1532 | 0.1457 | 4.3136 | 0.0257 | 0.0000 |
 | Step 2,900,000 | 14,958 | 0.4923 | 0.2885 | 0.1301 | 0.2818 | 0.2912 | 4.4301 | 0.0253 | 0.0098 |
 | Step 2,950,000 | 15,196 | 0.6773 | 0.2416 | 0.0584 | 0.2362 | 0.2090 | 2.9728 | 0.0179 | 0.0000 |
-| Step 3,000,000 | 15,435 | 0.0097 | 0.1116 | 0.0130 | 0.1784 | 0.1750 | 3.3856 | 0.0201 | -0.0881 |
 | Final | 15,435 | 0.0970 | 0.0219 | 0.0444 | 0.1204 | 0.1822 | 3.6031 | 0.0216 | 0.0783 |
+| Step 3,000,000 | 15,435 | 0.0097 | 0.1116 | 0.0130 | 0.1784 | 0.1750 | 3.3856 | 0.0201 | -0.0881 |

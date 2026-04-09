@@ -21,6 +21,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analyze_checkpoint import analyze_checkpoint
 from rainbow.train import build_parser, main_rainbow
+from shared.graphing import (
+    generate_achievement_zoom_graphs,
+    generate_rq_graphs,
+    generate_rq_graphs_averaged,
+)
 from shared.reporting import (
     generate_averaged_report,
     generate_report,
@@ -145,8 +150,10 @@ def _run_seed(args: Args, seed: int) -> tuple:
     checkpoint_results.sort(key=lambda x: x[1].get("episode", 0))
 
     if checkpoint_results:
+        rq_graphs = generate_rq_graphs(checkpoint_results, seed_root, seed)
         report_md = generate_report(
-            checkpoint_results, "Crafter", seed, episode_count, seed_root
+            checkpoint_results, "Crafter", seed, episode_count, seed_root,
+            rq_graphs=rq_graphs,
         )
         report_path = os.path.join(seed_root, f"report_crafter_rainbow_{seed}.md")
         os.makedirs(seed_root, exist_ok=True)
@@ -180,6 +187,13 @@ def run(args: Args):
         f.write(avg_md)
     print(f"\nAveraged report saved: {avg_path}")
     report_paths.append(avg_path)
+
+    if len(all_seed_results) == len(args.seeds):
+        print(f"\nAll {len(args.seeds)} seeds complete — generating averaged & zoomed graphs ...")
+        generate_rq_graphs_averaged(all_seed_results, args.experiment_root)
+        generate_achievement_zoom_graphs(
+            args.experiment_root, list(all_seed_results.keys()), algorithm="rainbow"
+        )
 
     if args.auto_push and report_paths:
         push_reports(report_paths, "Crafter")

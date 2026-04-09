@@ -16,7 +16,7 @@ import tyro
 @dataclass
 class Shared:
     """Arguments shared across runs."""
-    seeds: list[int] = field(default_factory=lambda: [2,3,4,5])
+    seeds: list[int] = field(default_factory=lambda: [3,4,5])
     experiment_root: str = "rainbow_experiment_root"
     n_eval_episodes: int = 1000
     split_mode: str = "percentile"

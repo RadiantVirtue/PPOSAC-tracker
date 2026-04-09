@@ -160,7 +160,21 @@ def _summary_row(label: str, r: dict) -> str:
 
 # ── report generation ─────────────────────────────────────────────────────────
 
-def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment_root):
+def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment_root,
+                    rq_graphs=None):
+    """Build a per-seed markdown report.
+
+    Args:
+        checkpoint_results: list of (label, result_dict) pairs.
+        env_id:             environment name string.
+        seed:               seed integer.
+        total_episodes:     total episode count at end of training.
+        experiment_root:    path to the seed experiment directory.
+        rq_graphs:          optional dict {key: relative_path} returned by
+                            shared.graphing.generate_rq_graphs().  When provided,
+                            a "Longitudinal Analysis" section is inserted between
+                            the summary table and the per-checkpoint sections.
+    """
     lines = []
 
     # ── header ────────────────────────────────────────────────────────────────
@@ -180,6 +194,84 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
     for label, r in checkpoint_results:
         lines.append(_summary_row(label, r))
     lines += [""]
+
+    # ── longitudinal analysis (RQ graphs) ────────────────────────────────────
+    if rq_graphs:
+        _RQ_LABELS = {
+            # PPO-specific
+            "rq1_opposition": (
+                "RQ1 — G_uniform Opposition Score Over Training",
+                "PPO has no G_IS analog (on-policy, no PER). The low magnitude (typically 0.1–0.6) "
+                "and high variance across checkpoints contrasts sharply with Rainbow's stable 0.7–0.98 "
+                "range, reflecting the noisier gradient structure of on-policy learning."
+            ),
+            "rq3_activation_rsa": (
+                "RQ3 — Activation Separation and RSA Alignment Co-trajectory",
+                "Top: activation separation (Euclidean centroid distance) grows from ~0.8 to 3–5 over "
+                "training. Bottom: RSA alignment ρ starts negative (–0.4 to –0.6 early) and transitions "
+                "to positive (0.15–0.35) by mid/late training, indicating emerging semantic structure."
+            ),
+            "rq3_coherence": (
+                "RQ3 — Gradient Coherence and Magnitude Over Training",
+                "Top: gradient coherence for success and failure groups — PPO coherence is consistently "
+                "low (0.05–0.4) throughout, contrasting with Rainbow's 0.83–0.97. "
+                "Bottom: gradient magnitude success vs failure — similar magnitudes with slight "
+                "failure-group advantage in early training."
+            ),
+            "rq3_coherence_vs_rsa": (
+                "RQ3 — Gradient Coherence vs RSA Alignment (Scatter)",
+                "Each point is one periodic checkpoint, coloured by training stage. "
+                "Tests whether higher coherence predicts better semantic structure. "
+                "A weak positive trend in late training is expected; the scatter pattern "
+                "reveals whether the relationship holds longitudinally for PPO."
+            ),
+            # Rainbow-specific
+            "rq1_gradient_variants":  (
+                "RQ1 — Directional Stability: cos(G_uniform, G_IS) and Opposition Score",
+                "Top panel: cosine similarity between G_uniform and G_IS for success/failure groups "
+                "(expected ~0.97–1.0 throughout). Bottom panel: opposition score under both weightings — "
+                "G_IS tracks G_uniform closely, confirming IS re-weighting does not substantially "
+                "redirect gradient direction."
+            ),
+            "rq2_cos_is_reward": (
+                "RQ2 — PER Directional Influence: cos(G_IS, G_reward)",
+                "Alignment between the IS-weighted gradient and the reward-proximal gradient proxy. "
+                "High values indicate PER tends to up-weight reward-proximal transitions; "
+                "variance across training reflects inconsistency of this alignment."
+            ),
+            "rq3_coherence_vs_rsa": (
+                "RQ3 — Coherence vs Representational Structure (Scatter)",
+                "Each point is one periodic checkpoint. Colour encodes training stage (early=dark, "
+                "late=bright). A positive slope would support the RQ3 prediction that high gradient "
+                "coherence predicts better semantic structure. Weak/absent correlation is itself informative."
+            ),
+            "rq4_mora_budget": (
+                "RQ4 — MORA: Weighted Gradient Budget by Reward Sign",
+                "Proportional gradient contribution = gradient_magnitude × n_transitions, normalised "
+                "to sum to 1. Resolves the scale problem: despite ~5–10× higher per-transition "
+                "magnitude, positive transitions do not overwhelmingly dominate because neutral "
+                "transitions vastly outnumber them."
+            ),
+            "rq4_mora_magnitude_log": (
+                "RQ4 — MORA: Per-Transition Gradient Magnitude (Log Scale)",
+                "Log y-axis makes the 5–10× gap between positive and neutral per-transition magnitudes "
+                "readable without flattening the neutral baseline. Negative transitions sit in between."
+            ),
+            "rq4_mora_opposition": (
+                "RQ4 — MORA: Cross-Group Opposition Scores",
+                "Three pairwise comparisons: Positive vs Neutral (directional conflict — persistently "
+                "negative means reward moments and exploratory steps push the network in opposite "
+                "directions); Positive vs Failure; Neutral vs Failure."
+            ),
+        }
+        lines += ["---", "", "## Longitudinal Analysis", ""]
+        for key, rel_path in rq_graphs.items():
+            title, caption = _RQ_LABELS.get(key, (key, ""))
+            lines += [
+                f"### {title}", "",
+                f"![{title}]({rel_path})", "",
+                f"*{caption}*", "",
+            ]
 
     # ── per-checkpoint sections ───────────────────────────────────────────────
     for label, r in checkpoint_results:

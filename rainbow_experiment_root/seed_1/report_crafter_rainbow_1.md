@@ -4,7 +4,7 @@
 **Seed:** 1  
 **Total episodes:** 13,211  
 **Experiment root:** `rainbow_experiment_root\seed_1`  
-**Generated:** 2026-04-09 11:16
+**Generated:** 2026-04-09 11:36
 
 ## Summary
 
@@ -88,6 +88,46 @@
 | Step 2,900,000 | 12,824 | 0.8677 | 0.8416 | 0.7399 | 0.1862 | 0.2773 | 0.8858 | 0.0254 | — |
 | Step 2,950,000 | 13,018 | 0.7711 | 0.8349 | 0.6845 | 0.1782 | 0.3449 | 1.1141 | 0.0405 | — |
 | Step 3,000,000 | 13,211 | 0.7108 | 0.8938 | 0.6368 | 0.1797 | 0.2467 | 1.0319 | 0.0328 | — |
+
+---
+
+## Longitudinal Analysis
+
+### RQ1 — Directional Stability: cos(G_uniform, G_IS) and Opposition Score
+
+![RQ1 — Directional Stability: cos(G_uniform, G_IS) and Opposition Score](graphs/rq/rq1_gradient_variants_seed1.png)
+
+*Top panel: cosine similarity between G_uniform and G_IS for success/failure groups (expected ~0.97–1.0 throughout). Bottom panel: opposition score under both weightings — G_IS tracks G_uniform closely, confirming IS re-weighting does not substantially redirect gradient direction.*
+
+### RQ2 — PER Directional Influence: cos(G_IS, G_reward)
+
+![RQ2 — PER Directional Influence: cos(G_IS, G_reward)](graphs/rq/rq2_cos_is_reward_seed1.png)
+
+*Alignment between the IS-weighted gradient and the reward-proximal gradient proxy. High values indicate PER tends to up-weight reward-proximal transitions; variance across training reflects inconsistency of this alignment.*
+
+### RQ3 — Coherence vs Representational Structure (Scatter)
+
+![RQ3 — Coherence vs Representational Structure (Scatter)](graphs/rq/rq3_coherence_vs_rsa_seed1.png)
+
+*Each point is one periodic checkpoint. Colour encodes training stage (early=dark, late=bright). A positive slope would support the RQ3 prediction that high gradient coherence predicts better semantic structure. Weak/absent correlation is itself informative.*
+
+### RQ4 — MORA: Weighted Gradient Budget by Reward Sign
+
+![RQ4 — MORA: Weighted Gradient Budget by Reward Sign](graphs/rq/rq4_mora_budget_seed1.png)
+
+*Proportional gradient contribution = gradient_magnitude × n_transitions, normalised to sum to 1. Resolves the scale problem: despite ~5–10× higher per-transition magnitude, positive transitions do not overwhelmingly dominate because neutral transitions vastly outnumber them.*
+
+### RQ4 — MORA: Per-Transition Gradient Magnitude (Log Scale)
+
+![RQ4 — MORA: Per-Transition Gradient Magnitude (Log Scale)](graphs/rq/rq4_mora_magnitude_log_seed1.png)
+
+*Log y-axis makes the 5–10× gap between positive and neutral per-transition magnitudes readable without flattening the neutral baseline. Negative transitions sit in between.*
+
+### RQ4 — MORA: Cross-Group Opposition Scores
+
+![RQ4 — MORA: Cross-Group Opposition Scores](graphs/rq/rq4_mora_opposition_seed1.png)
+
+*Three pairwise comparisons: Positive vs Neutral (directional conflict — persistently negative means reward moments and exploratory steps push the network in opposite directions); Positive vs Failure; Neutral vs Failure.*
 
 ---
 

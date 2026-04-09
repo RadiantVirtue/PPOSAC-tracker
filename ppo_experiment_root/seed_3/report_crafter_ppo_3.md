@@ -4,7 +4,7 @@
 **Seed:** 3  
 **Total episodes:** 14,913  
 **Experiment root:** `ppo_experiment_root\seed_3`  
-**Generated:** 2026-03-30 20:29
+**Generated:** 2026-04-09 12:07
 
 ## Summary
 
@@ -88,6 +88,34 @@
 | Step 2,950,000 | 14,696 | 0.5510 | 0.1857 | 0.0910 | 0.2058 | 0.2110 | 3.3381 | 0.0202 | 0.2791 |
 | Step 3,000,000 | 14,911 | 0.3418 | 0.0738 | 0.0109 | 0.1720 | 0.1316 | 2.2883 | 0.0092 | 0.1745 |
 | Final | 14,913 | 0.4190 | 0.0293 | 0.1112 | 0.1382 | 0.1951 | 2.6706 | 0.0135 | 0.1745 |
+
+---
+
+## Longitudinal Analysis
+
+### RQ1 — G_uniform Opposition Score Over Training
+
+![RQ1 — G_uniform Opposition Score Over Training](graphs/rq/rq1_opposition_seed3.png)
+
+*PPO has no G_IS analog (on-policy, no PER). The low magnitude (typically 0.1–0.6) and high variance across checkpoints contrasts sharply with Rainbow's stable 0.7–0.98 range, reflecting the noisier gradient structure of on-policy learning.*
+
+### RQ3 — Activation Separation and RSA Alignment Co-trajectory
+
+![RQ3 — Activation Separation and RSA Alignment Co-trajectory](graphs/rq/rq3_activation_rsa_seed3.png)
+
+*Top: activation separation (Euclidean centroid distance) grows from ~0.8 to 3–5 over training. Bottom: RSA alignment ρ starts negative (–0.4 to –0.6 early) and transitions to positive (0.15–0.35) by mid/late training, indicating emerging semantic structure.*
+
+### RQ3 — Gradient Coherence and Magnitude Over Training
+
+![RQ3 — Gradient Coherence and Magnitude Over Training](graphs/rq/rq3_coherence_seed3.png)
+
+*Top: gradient coherence for success and failure groups — PPO coherence is consistently low (0.05–0.4) throughout, contrasting with Rainbow's 0.83–0.97. Bottom: gradient magnitude success vs failure — similar magnitudes with slight failure-group advantage in early training.*
+
+### RQ3 — Coherence vs Representational Structure (Scatter)
+
+![RQ3 — Coherence vs Representational Structure (Scatter)](graphs/rq/rq3_coherence_vs_rsa_seed3.png)
+
+*Each point is one periodic checkpoint. Colour encodes training stage (early=dark, late=bright). A positive slope would support the RQ3 prediction that high gradient coherence predicts better semantic structure. Weak/absent correlation is itself informative.*
 
 ---
 
