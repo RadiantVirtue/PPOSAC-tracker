@@ -52,7 +52,7 @@ class Rainbow:
 
 @dataclass
 class Args:
-    algorithm: str = "ppo"   # "ppo" or "rainbow"
+    algorithm: str = "rainbow"   # "ppo" or "rainbow"
     shared: Shared = field(default_factory=Shared)
     ppo: PPO = field(default_factory=PPO)
     rainbow: Rainbow = field(default_factory=Rainbow)
