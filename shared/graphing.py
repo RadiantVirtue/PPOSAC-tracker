@@ -386,6 +386,129 @@ def _add_tier_completion_lines(ax, ach_steps: dict[str, float]) -> list:
     return handles
 
 
+def _add_all_achievement_markers(
+    ax,
+    ach_steps: dict[str, float],
+    x_range: tuple | None = None,
+) -> tuple[list, list[str]]:
+    """Draw one dotted vertical line per achievement (or cluster) on ax.
+
+    Isolated achievements get their tier colour; achievements within 2% of the
+    x-range of each other are collapsed into a single grey cluster line.
+
+    Returns:
+        handles      — list of Line2D legend handles
+        cluster_notes — list of strings like "Cluster 1: ach_a, ach_b"
+                        (empty when there are no clusters)
+    """
+    import matplotlib.lines as mlines
+
+    if not ach_steps:
+        return [], []
+
+    if x_range is None:
+        vals = list(ach_steps.values())
+        x_min, x_max = min(vals), max(vals)
+    else:
+        x_min, x_max = x_range
+
+    clump_window = max(1, int(0.02 * (x_max - x_min)))
+    groups = _cluster_achievements(
+        {a: int(s) for a, s in ach_steps.items()},
+        clump_window=clump_window,
+    )
+
+    handles: list = []
+    cluster_notes: list[str] = []
+    cluster_idx = 0
+
+    for group in groups:
+        mid_step = float(np.median([ach_steps.get(a, 0) for a, _ in group]))
+
+        if len(group) == 1:
+            ach, _ = group[0]
+            tier = ACHIEVEMENT_TIERS.get(ach, 1)
+            c = TIER_COLORS[tier]
+            short_label = ach.replace("_", " ")
+        else:
+            cluster_idx += 1
+            c = "#666666"
+            short_label = f"Cluster {cluster_idx}"
+            names = ",  ".join(a.replace("_", " ") for a, _ in group)
+            cluster_notes.append(f"Cluster {cluster_idx}:  {names}")
+
+        ax.axvline(mid_step, color=c, linestyle=":", linewidth=1.0,
+                   alpha=0.75, zorder=1)
+        handles.append(
+            mlines.Line2D([], [], color=c, linestyle=":", linewidth=1.0,
+                          label=short_label)
+        )
+
+    return handles, cluster_notes
+
+
+def _ach_steps_from_results(
+    checkpoint_results: list,
+) -> dict[str, float]:
+    """Derive {achievement_name: global_step} from a single seed's checkpoint_results.
+
+    Builds an episode→step interpolation table from periodic records, then
+    maps each milestone record's episode count to an estimated global step.
+    """
+    ep_step: list[tuple[int, int]] = []
+    for label, rec in checkpoint_results:
+        step = _parse_step(label)
+        if step is None:
+            continue
+        ep = rec.get("episode")
+        if ep is not None:
+            ep_step.append((int(ep), int(step)))
+    ep_step.sort()
+    if not ep_step:
+        return {}
+
+    ep_arr = np.array([x[0] for x in ep_step], dtype=float)
+    st_arr = np.array([x[1] for x in ep_step], dtype=float)
+
+    ach_steps: dict[str, float] = {}
+    for label, rec in checkpoint_results:
+        if _parse_step(label) is not None:
+            continue  # skip periodic records
+        ach = _parse_achievement(label)
+        if ach is None:
+            ach = _parse_achievement(label.replace(".json", ""))
+        if ach is None:
+            continue
+        ep = rec.get("episode")
+        if ep is None:
+            continue
+        ep_f = float(ep)
+        if ep_f <= ep_arr[0]:
+            step_est = float(st_arr[0])
+        elif ep_f >= ep_arr[-1]:
+            step_est = float(st_arr[-1])
+        else:
+            step_est = float(np.interp(ep_f, ep_arr, st_arr))
+        ach_steps[ach] = step_est
+
+    return ach_steps
+
+
+def _ach_steps_from_all_results(
+    all_seed_results: dict,
+) -> dict[str, float]:
+    """Compute mean {achievement_name: global_step} across all seeds.
+
+    all_seed_results: {seed_id: [(label, record), ...]}
+    """
+    from collections import defaultdict as _defaultdict
+    ach_step_lists: dict[str, list[float]] = _defaultdict(list)
+    for results in all_seed_results.values():
+        for ach, step in _ach_steps_from_results(results).items():
+            ach_step_lists[ach].append(step)
+    return {ach: float(np.mean(steps)) for ach, steps in ach_step_lists.items()}
+
+
 def _apply_xaxis_millions(ax):
     ax.xaxis.set_major_formatter(
         matplotlib.ticker.FuncFormatter(lambda x, _: f"{x/1e6:.1f}M")
@@ -433,9 +556,18 @@ def _plot_periodic_single(
     if hline is not None:
         ax.axhline(hline, color="grey", linestyle=":", linewidth=0.8, alpha=0.6)
 
-    tier_handles = _add_tier_completion_lines(ax, ach_steps) if ach_steps else []
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps,
+                                     x_range=(steps[0], steps[-1]) if steps else None)
+        if ach_steps else ([], [])
+    )
     metric_handles, _ = ax.get_legend_handles_labels()
-    ax.legend(handles=metric_handles + tier_handles, loc="upper left", fontsize=8)
+    ax.legend(handles=metric_handles + ach_handles, loc="upper left", fontsize=7)
+
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     _apply_xaxis_millions(ax)
     ax.set_ylabel(ylabel)
@@ -472,9 +604,18 @@ def _plot_periodic_dual(
     _make_shaded_line(ax, steps, means_a, stds_a, color_a, label_a)
     _make_shaded_line(ax, steps, means_b, stds_b, color_b, label_b)
 
-    tier_handles = _add_tier_completion_lines(ax, ach_steps) if ach_steps else []
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps,
+                                     x_range=(steps[0], steps[-1]) if steps else None)
+        if ach_steps else ([], [])
+    )
     metric_handles, _ = ax.get_legend_handles_labels()
-    ax.legend(handles=metric_handles + tier_handles, loc="upper left", fontsize=8)
+    ax.legend(handles=metric_handles + ach_handles, loc="upper left", fontsize=7)
+
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     _apply_xaxis_millions(ax)
     ax.set_ylabel(ylabel)
@@ -668,37 +809,20 @@ def plot_return_vs_metrics(
             ax2.spines["left"].set_visible(False)
 
             # ── Achievement markers ─────────────────────────────────────────
-            import matplotlib.lines as mlines
-
-            ach_legend_handles = []
-            cluster_notes = []
-
-            for i, group in enumerate(groups):
-                mid_step = float(np.median([ach_steps_seed.get(a, 0) for a, _ in group]))
-
-                if len(group) == 1:
-                    ach, _ = group[0]
-                    tier = ACHIEVEMENT_TIERS.get(ach, 1)
-                    c = TIER_COLORS[tier]
-                    short_label = ach.replace("_", " ")
-                else:
-                    c = "#666666"
-                    short_label = f"Cluster {i + 1}"
-                    names = ",  ".join(a.replace("_", " ") for a, _ in group)
-                    cluster_notes.append(f"Cluster {i + 1}:  {names}")
-
-                ax1.axvline(mid_step, color=c, linestyle=":", linewidth=1.0,
-                            alpha=0.7, zorder=1)
-                ach_legend_handles.append(
-                    mlines.Line2D([], [], color=c, linestyle=":", linewidth=1.0,
-                                  label=short_label)
-                )
+            x_range_seed = (
+                (min(ach_steps_seed.values()), max(ach_steps_seed.values()))
+                if ach_steps_seed else None
+            )
+            ach_legend_handles, cluster_notes = (
+                _add_all_achievement_markers(ax1, ach_steps_seed, x_range=x_range_seed)
+                if ach_steps_seed else ([], [])
+            )
 
             # ── Combined legend (short labels only) ─────────────────────────
             h1, _ = ax1.get_legend_handles_labels()
             h2, _ = ax2.get_legend_handles_labels()
             ax1.legend(handles=h1 + h2 + ach_legend_handles,
-                       loc="upper left", fontsize=8, framealpha=0.85)
+                       loc="upper left", fontsize=7, framealpha=0.85)
 
             ax1.xaxis.set_major_formatter(
                 matplotlib.ticker.FuncFormatter(lambda x, _: f"{x/1e6:.1f}M")
@@ -713,11 +837,8 @@ def plot_return_vs_metrics(
                 note_text = "\n".join(cluster_notes)
                 fig.text(
                     0.01, -0.04, note_text,
-                    fontsize=7, color="#444444",
+                    fontsize=6, color="#444444",
                     verticalalignment="top", horizontalalignment="left",
-                    wrap=True,
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5",
-                              edgecolor="#cccccc", alpha=0.9),
                 )
 
             safe = metric_key.replace(".", "_")
@@ -920,26 +1041,14 @@ def plot_return_vs_metrics_averaged(
         ax2.spines["left"].set_visible(False)
 
         # ── Achievement markers ────────────────────────────────────────────────
-        ach_legend_handles = []
-        cluster_notes = []
-        for i, group in enumerate(groups):
-            mid_step = float(np.median([ach_steps_mean.get(a, 0) for a, _ in group]))
-            if len(group) == 1:
-                ach, _ = group[0]
-                tier = ACHIEVEMENT_TIERS.get(ach, 1)
-                c = TIER_COLORS[tier]
-                short_label = ach.replace("_", " ")
-            else:
-                c = "#666666"
-                short_label = f"Cluster {i + 1}"
-                names = ",  ".join(a.replace("_", " ") for a, _ in group)
-                cluster_notes.append(f"Cluster {i + 1}:  {names}")
-            ax1.axvline(mid_step, color=c, linestyle=":", linewidth=1.0,
-                        alpha=0.7, zorder=1)
-            ach_legend_handles.append(
-                mlines.Line2D([], [], color=c, linestyle=":", linewidth=1.0,
-                              label=short_label)
-            )
+        x_range_mean = (
+            (min(ach_steps_mean.values()), max(ach_steps_mean.values()))
+            if ach_steps_mean else None
+        )
+        ach_legend_handles, cluster_notes = (
+            _add_all_achievement_markers(ax1, ach_steps_mean, x_range=x_range_mean)
+            if ach_steps_mean else ([], [])
+        )
 
         # ── Every-5k-episode x-axis annotations ───────────────────────────────
         ax_top = ax1.twiny()
@@ -957,14 +1066,12 @@ def plot_return_vs_metrics_averaged(
         h1, _ = ax1.get_legend_handles_labels()
         h2, _ = ax2.get_legend_handles_labels()
         ax1.legend(handles=h1 + h2 + ach_legend_handles,
-                   loc="upper left", fontsize=8, framealpha=0.85)
+                   loc="upper left", fontsize=7, framealpha=0.85)
 
         if cluster_notes:
             fig.text(0.01, -0.04, "\n".join(cluster_notes),
-                     fontsize=7, color="#444444",
-                     verticalalignment="top", horizontalalignment="left",
-                     bbox=dict(boxstyle="round,pad=0.3", facecolor="#f5f5f5",
-                               edgecolor="#cccccc", alpha=0.9))
+                     fontsize=6, color="#444444",
+                     verticalalignment="top", horizontalalignment="left")
 
         ax1.xaxis.set_major_formatter(
             matplotlib.ticker.FuncFormatter(lambda x, _: f"{x/1e6:.1f}M")
@@ -1077,9 +1184,17 @@ def plot_all_per_seed_graphs(
             if hline is not None:
                 ax.axhline(hline, color="grey", linestyle=":", linewidth=0.8, alpha=0.6)
 
-            tier_handles = _add_tier_completion_lines(ax, seed_ach_steps) if seed_ach_steps else []
+            ach_handles, cluster_notes = (
+                _add_all_achievement_markers(ax, seed_ach_steps,
+                                             x_range=(xs[0], xs[-1]) if len(xs) else None)
+                if seed_ach_steps else ([], [])
+            )
             h, _ = ax.get_legend_handles_labels()
-            ax.legend(handles=h + tier_handles, loc="lower right", fontsize=8)
+            ax.legend(handles=h + ach_handles, loc="lower right", fontsize=7)
+            if cluster_notes:
+                fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                         verticalalignment="top", horizontalalignment="left",
+                         transform=fig.transFigure)
 
             _apply_xaxis_millions(ax)
             ax.set_ylabel(ylabel)
@@ -1129,9 +1244,17 @@ def plot_opposition_per_seed_detail(agg, periodic, seed_ids, ach_steps, out_dir,
 
         ax.axhline(0.0, color="grey", linestyle=":", linewidth=0.8, alpha=0.6)
 
-        tier_handles = _add_tier_completion_lines(ax, ach_steps) if ach_steps else []
+        ach_handles, cluster_notes = (
+            _add_all_achievement_markers(ax, ach_steps,
+                                         x_range=(xs[0], xs[-1]) if len(xs) else None)
+            if ach_steps else ([], [])
+        )
         h, _ = ax.get_legend_handles_labels()
-        ax.legend(handles=h + tier_handles, loc="upper left", fontsize=8)
+        ax.legend(handles=h + ach_handles, loc="upper left", fontsize=7)
+        if cluster_notes:
+            fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                     verticalalignment="top", horizontalalignment="left",
+                     transform=fig.transFigure)
 
         _apply_xaxis_millions(ax)
         ax.set_ylabel("Opposition Score")
@@ -1222,13 +1345,21 @@ def plot_activation_combined(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
     _make_shaded_line(ax2, steps, means_cos, stds_cos, C_VIOLET,
                       f"Mean \u00b1 1 std ({len(seed_ids)} seeds)")
 
-    tier_handles = _add_tier_completion_lines(ax1, ach_steps) if ach_steps else []
+    x_range = (steps[0], steps[-1]) if steps else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax1, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
     if ach_steps:
-        _add_tier_completion_lines(ax2, ach_steps)
+        _add_all_achievement_markers(ax2, ach_steps, x_range=x_range)
 
     h1, _ = ax1.get_legend_handles_labels()
-    ax1.legend(handles=h1 + tier_handles, loc="upper left", fontsize=8)
-    ax2.legend(loc="upper left", fontsize=8)
+    ax1.legend(handles=h1 + ach_handles, loc="upper left", fontsize=7)
+    ax2.legend(loc="upper left", fontsize=7)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
     ax1.set_ylabel("Euclidean Distance")
     ax1.set_title("PPO — Activation Centroid Separation Over Training")
     ax2.set_ylabel("Cosine Distance")
@@ -1275,9 +1406,17 @@ def plot_rsa_alignment(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
         _make_shaded_line(ax, steps, means_arr.tolist(), stds_arr.tolist(),
                           color, _GROUP_LABELS[metric])
 
-    tier_handles = _add_tier_completion_lines(ax, ach_steps) if ach_steps else []
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps,
+                                     x_range=(steps[0], steps[-1]) if steps else None)
+        if ach_steps else ([], [])
+    )
     metric_handles, _ = ax.get_legend_handles_labels()
-    ax.legend(handles=metric_handles + tier_handles, loc="upper left", fontsize=8)
+    ax.legend(handles=metric_handles + ach_handles, loc="upper left", fontsize=7)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     _apply_xaxis_millions(ax)
     ax.set_ylabel("Spearman \u03c1")
@@ -2322,9 +2461,17 @@ def plot_weight_delta_alignment(
 
         ax.axhline(0.0, color="grey", linestyle=":", linewidth=0.8, alpha=0.6)
 
-        tier_handles = _add_tier_completion_lines(ax, ach_steps) if ach_steps else []
+        ach_handles, cluster_notes = (
+            _add_all_achievement_markers(ax, ach_steps,
+                                         x_range=(xs[0], xs[-1]) if xs else None)
+            if ach_steps else ([], [])
+        )
         metric_handles, _ = ax.get_legend_handles_labels()
-        ax.legend(handles=metric_handles + tier_handles, loc="upper left", fontsize=8)
+        ax.legend(handles=metric_handles + ach_handles, loc="upper left", fontsize=7)
+        if cluster_notes:
+            fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                     verticalalignment="top", horizontalalignment="left",
+                     transform=fig.transFigure)
 
         _apply_xaxis_millions(ax)
         ax.set_ylabel("Cosine Similarity (gradient vs \u0394\u03b8)")
@@ -2389,7 +2536,7 @@ def _rq_fmt_millions(ax):
 
 # ── RQ1 ───────────────────────────────────────────────────────────────────────
 
-def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, dpi=150):
+def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ1: cos(G_uniform, G_IS) and opposition score comparison over training.
 
     Two-panel figure:
@@ -2419,7 +2566,6 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, dpi=150):
         f"Rainbow Seed {seed} — RQ1: Directional Stability of G_uniform under IS Re-weighting"
     )
     ax_top.set_ylim(max(0.85, min((s_cos_vals + f_cos_vals), default=0.9) - 0.02), 1.02)
-    ax_top.legend(fontsize=9, loc="lower right")
     ax_top.grid(True, alpha=0.3, linestyle="--")
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
@@ -2432,10 +2578,29 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, dpi=150):
     ax_bot.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.6)
     ax_bot.set_ylabel("Opposition Score  (cosine similarity)")
     _rq_fmt_millions(ax_bot)
-    ax_bot.legend(fontsize=9, loc="lower right")
     ax_bot.grid(True, alpha=0.3, linestyle="--")
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
+
+    # ── Achievement markers ────────────────────────────────────────────────────
+    all_steps = s_cos_steps + opp_u_steps
+    x_range = (min(all_steps), max(all_steps)) if all_steps else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax_top, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    if ach_steps:
+        _add_all_achievement_markers(ax_bot, ach_steps, x_range=x_range)
+
+    h_top, _ = ax_top.get_legend_handles_labels()
+    ax_top.legend(handles=h_top + ach_handles, fontsize=8, loc="lower right")
+    h_bot, _ = ax_bot.get_legend_handles_labels()
+    ax_bot.legend(handles=h_bot, fontsize=8, loc="lower right")
+
+    if cluster_notes:
+        fig.text(0.01, -0.03, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq1_gradient_variants_seed{seed}.png")
@@ -2446,7 +2611,7 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, dpi=150):
 
 # ── RQ2 ───────────────────────────────────────────────────────────────────────
 
-def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, dpi=150):
+def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ2: cos(G_IS, G_reward) over training — how much does IS align with reward-proximal?"""
     s_steps, s_vals = _rq_extract(checkpoint_results, "cos_is_reward_success")
     f_steps, f_vals = _rq_extract(checkpoint_results, "cos_is_reward_failure")
@@ -2466,10 +2631,22 @@ def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, dpi=150):
         f"Rainbow Seed {seed} — RQ2: Alignment of G_IS with Reward-Proximal Gradient (G_reward)"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    all_steps = s_steps + f_steps
+    x_range = (min(all_steps), max(all_steps)) if all_steps else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq2_cos_is_reward_seed{seed}.png")
@@ -2480,7 +2657,7 @@ def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, dpi=150):
 
 # ── RQ3 ───────────────────────────────────────────────────────────────────────
 
-def plot_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, dpi=150):
+def plot_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ3: Scatter of gradient coherence vs RSA alignment (coloured by training step).
 
     Tests the RQ3 prediction: does high coherence predict better semantic structure?
@@ -2544,7 +2721,7 @@ def plot_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, dpi=150):
 
 # ── RQ4 ───────────────────────────────────────────────────────────────────────
 
-def plot_rq4_mora_budget(checkpoint_results, out_dir, seed, dpi=150):
+def plot_rq4_mora_budget(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ4: Stacked area chart of weighted gradient budget by reward sign.
 
     Proportional contribution = (gradient_magnitude × n_transitions) / total,
@@ -2600,11 +2777,22 @@ def plot_rq4_mora_budget(checkpoint_results, out_dir, seed, dpi=150):
         "Neutral transitions collectively rival positive despite low per-transition magnitude"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9, loc="upper left")
     ax.set_ylim(0, 1)
     ax.grid(False)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (xs[0], xs[-1]) if len(xs) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8, loc="upper left")
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq4_mora_budget_seed{seed}.png")
@@ -2613,7 +2801,7 @@ def plot_rq4_mora_budget(checkpoint_results, out_dir, seed, dpi=150):
     return path
 
 
-def plot_rq4_mora_magnitude_log(checkpoint_results, out_dir, seed, dpi=150):
+def plot_rq4_mora_magnitude_log(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ4: Per-transition gradient magnitude on a log y-axis.
 
     Log scale makes positive (5–10×) vs neutral (0.2) vs negative (3–7)
@@ -2655,10 +2843,21 @@ def plot_rq4_mora_magnitude_log(checkpoint_results, out_dir, seed, dpi=150):
         "Log scale reveals the ~10× gap without flattening the neutral baseline"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--", which="both")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (xs_arr[0], xs_arr[-1]) if len(xs_arr) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq4_mora_magnitude_log_seed{seed}.png")
@@ -2667,7 +2866,7 @@ def plot_rq4_mora_magnitude_log(checkpoint_results, out_dir, seed, dpi=150):
     return path
 
 
-def plot_rq4_mora_opposition(checkpoint_results, out_dir, seed, dpi=150):
+def plot_rq4_mora_opposition(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ4: MORA opposition scores over training — three key comparisons in one panel.
 
     Shows:
@@ -2713,16 +2912,175 @@ def plot_rq4_mora_opposition(checkpoint_results, out_dir, seed, dpi=150):
         "Negative Pos vs Neutral = reward moments and exploratory steps pull in opposite directions"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (xs_arr[0], xs_arr[-1]) if len(xs_arr) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq4_mora_opposition_seed{seed}.png")
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     return path
+
+
+# ── RQ4 MORA opposition — 3 separate single-line graphs ───────────────────────
+
+_MORA_OPP_SEPARATE = [
+    (
+        "opp_pos_vs_neutral",
+        "Positive vs Neutral",
+        "#9467bd",
+        "directional conflict: reward moments vs preparatory steps",
+    ),
+    (
+        "opp_pos_vs_failure",
+        "Positive vs Failure",
+        "#2ca02c",
+        "how reward-moment gradients relate to failure gradients",
+    ),
+    (
+        "opp_neutral_vs_failure",
+        "Neutral vs Failure",
+        "#1f77b4",
+        "how preparatory steps relate to failure gradients",
+    ),
+]
+
+
+def plot_rq4_mora_opposition_separate(
+    checkpoint_results, out_dir, seed, ach_steps=None, dpi=150
+):
+    """RQ4: Three separate graphs, one per MORA cross-group opposition comparison.
+
+    Each graph shows a single series (one comparison) with optional achievement
+    markers, giving more space to read individual trends without line overlap.
+
+    Returns a list of file paths (one per comparison that had data).
+    """
+    mor_rows: dict[int, dict] = {}
+    for label, r in checkpoint_results:
+        step = _parse_step(label)
+        if step is None:
+            continue
+        mor = r.get("moment_of_reward")
+        if not mor:
+            continue
+        mor_rows[step] = mor
+
+    if not mor_rows:
+        return []
+
+    xs = sorted(mor_rows.keys())
+    xs_arr = np.array(xs, dtype=float)
+
+    os.makedirs(out_dir, exist_ok=True)
+    paths = []
+
+    for mora_key, label, color, subtitle in _MORA_OPP_SEPARATE:
+        ys = [
+            float(mor_rows[s][mora_key]) if mor_rows[s].get(mora_key) is not None else np.nan
+            for s in xs
+        ]
+        if all(np.isnan(v) for v in ys):
+            continue
+
+        fig, ax = plt.subplots(figsize=(11, 4.5))
+        ax.plot(xs_arr, ys, color=color, lw=2.0, label=label)
+        ax.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
+        ax.set_ylabel("Opposition Score  (cosine similarity)")
+        ax.set_title(
+            f"Rainbow Seed {seed} — RQ4 MORA: {label}\n"
+            f"{subtitle}"
+        )
+        _rq_fmt_millions(ax)
+        ax.grid(True, alpha=0.3, linestyle="--")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        x_range = (xs_arr[0], xs_arr[-1]) if len(xs_arr) else None
+        ach_handles, cluster_notes = (
+            _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+            if ach_steps else ([], [])
+        )
+        h, _ = ax.get_legend_handles_labels()
+        ax.legend(handles=h + ach_handles, fontsize=8)
+        if cluster_notes:
+            fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                     verticalalignment="top", horizontalalignment="left",
+                     transform=fig.transFigure)
+
+        path = os.path.join(out_dir, f"rq4_mora_opp_{mora_key}_seed{seed}.png")
+        fig.savefig(path, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        paths.append(path)
+
+    return paths
+
+
+def plot_rq4_mora_opposition_separate_avg(
+    all_seed_results, out_dir, ach_steps=None, dpi=150
+):
+    """RQ4 (Rainbow averaged): Three separate graphs, one per MORA opposition comparison.
+
+    Each graph shows mean ± std across seeds for a single comparison.
+    Returns a list of file paths.
+    """
+    step_grid = _build_step_grid(all_seed_results)
+    os.makedirs(out_dir, exist_ok=True)
+    paths = []
+
+    for mora_key, label, color, subtitle in _MORA_OPP_SEPARATE:
+        mean, std, n = _avg_mora_series(all_seed_results, mora_key, step_grid)
+        fin = np.isfinite(mean)
+        if not fin.any():
+            continue
+
+        fig, ax = plt.subplots(figsize=(11, 4.5))
+        ax.plot(step_grid[fin], mean[fin], color=color, lw=2.0,
+                label=f"{label} — mean (n={n} seeds)")
+        ax.fill_between(step_grid[fin], (mean - std)[fin], (mean + std)[fin],
+                        color=color, alpha=0.2, label="± 1 std")
+        ax.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
+        ax.set_ylabel("Opposition Score  (cosine similarity)")
+        ax.set_title(
+            f"Rainbow Averaged ({n} seeds) — RQ4 MORA: {label}\n"
+            f"{subtitle}"
+        )
+        _rq_fmt_millions(ax)
+        ax.grid(True, alpha=0.3, linestyle="--")
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+        x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+        ach_handles, cluster_notes = (
+            _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+            if ach_steps else ([], [])
+        )
+        h, _ = ax.get_legend_handles_labels()
+        ax.legend(handles=h + ach_handles, fontsize=8)
+        if cluster_notes:
+            fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                     verticalalignment="top", horizontalalignment="left",
+                     transform=fig.transFigure)
+
+        path = os.path.join(out_dir, f"rq4_mora_opp_{mora_key}_averaged.png")
+        fig.savefig(path, dpi=dpi, bbox_inches="tight")
+        plt.close(fig)
+        paths.append(path)
+
+    return paths
 
 
 # ── PPO RQ graphs ─────────────────────────────────────────────────────────────
@@ -2733,7 +3091,7 @@ def plot_rq4_mora_opposition(checkpoint_results, out_dir, seed, dpi=150):
 # RQ3 is the primary story: activation separation + RSA co-trajectory.
 
 
-def plot_ppo_rq1_opposition(checkpoint_results, out_dir, seed, dpi=150):
+def plot_ppo_rq1_opposition(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ1 (PPO): Opposition score over training.
 
     PPO has no G_IS analog, so this is G_uniform opposition score only.
@@ -2754,10 +3112,21 @@ def plot_ppo_rq1_opposition(checkpoint_results, out_dir, seed, dpi=150):
         "Low magnitude and high variance contrasts with Rainbow's stable 0.7–0.98"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (steps[0], steps[-1]) if steps else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq1_opposition_seed{seed}.png")
@@ -2766,7 +3135,7 @@ def plot_ppo_rq1_opposition(checkpoint_results, out_dir, seed, dpi=150):
     return path
 
 
-def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, dpi=150):
+def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ3 (PPO): Two-panel activation separation + RSA alignment co-trajectory.
 
     Top panel: activation separation — grows from ~0.8 to 3–5 over training.
@@ -2791,7 +3160,6 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, dpi=150):
         f"PPO Seed {seed} — RQ3: Representational Emergence\n"
         "Activation separation (top) and RSA alignment ρ (bottom) over training"
     )
-    ax_top.legend(fontsize=9)
     ax_top.grid(True, alpha=0.3, linestyle="--")
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
@@ -2803,10 +3171,29 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, dpi=150):
     ax_bot.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
     ax_bot.set_ylabel("RSA Alignment (ρ)")
     _rq_fmt_millions(ax_bot)
-    ax_bot.legend(fontsize=9)
     ax_bot.grid(True, alpha=0.3, linestyle="--")
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
+
+    # ── Achievement markers ────────────────────────────────────────────────────
+    all_steps = sep_steps + rsa_steps
+    x_range = (min(all_steps), max(all_steps)) if all_steps else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax_top, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    if ach_steps:
+        _add_all_achievement_markers(ax_bot, ach_steps, x_range=x_range)
+
+    h_top, _ = ax_top.get_legend_handles_labels()
+    ax_top.legend(handles=h_top + ach_handles, fontsize=8)
+    h_bot, _ = ax_bot.get_legend_handles_labels()
+    ax_bot.legend(handles=h_bot, fontsize=8)
+
+    if cluster_notes:
+        fig.text(0.01, -0.03, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq3_activation_rsa_seed{seed}.png")
@@ -2815,7 +3202,7 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, dpi=150):
     return path
 
 
-def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, dpi=150):
+def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ3 (PPO): Gradient coherence (success + failure) over training.
 
     Shows how low PPO coherence is (typically 0.05–0.4) throughout training —
@@ -2844,7 +3231,6 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, dpi=150):
     ax_top.set_title(
         f"PPO Seed {seed} — RQ3: Gradient Coherence and Magnitude Over Training"
     )
-    ax_top.legend(fontsize=9)
     ax_top.grid(True, alpha=0.3, linestyle="--")
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
@@ -2858,10 +3244,29 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, dpi=150):
                     linestyle="--", label="Grad Mag — Failure")
     ax_bot.set_ylabel("Gradient Magnitude")
     _rq_fmt_millions(ax_bot)
-    ax_bot.legend(fontsize=9)
     ax_bot.grid(True, alpha=0.3, linestyle="--")
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
+
+    # ── Achievement markers ────────────────────────────────────────────────────
+    all_steps = s_coh_steps + s_mag_steps
+    x_range = (min(all_steps), max(all_steps)) if all_steps else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax_top, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    if ach_steps:
+        _add_all_achievement_markers(ax_bot, ach_steps, x_range=x_range)
+
+    h_top, _ = ax_top.get_legend_handles_labels()
+    ax_top.legend(handles=h_top + ach_handles, fontsize=8)
+    h_bot, _ = ax_bot.get_legend_handles_labels()
+    ax_bot.legend(handles=h_bot, fontsize=8)
+
+    if cluster_notes:
+        fig.text(0.01, -0.03, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"rq3_coherence_seed{seed}.png")
@@ -2870,7 +3275,7 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, dpi=150):
     return path
 
 
-def plot_ppo_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, dpi=150):
+def plot_ppo_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ3 (PPO): Scatter of gradient coherence vs RSA alignment, coloured by step.
 
     Tests whether high coherence predicts better semantic structure.
@@ -2941,6 +3346,8 @@ def generate_ppo_rq_graphs(checkpoint_results, seed_root, seed, dpi=150):
     out_dir = os.path.join(seed_root, "graphs", "rq")
     os.makedirs(out_dir, exist_ok=True)
 
+    ach_steps = _ach_steps_from_results(checkpoint_results)
+
     generated = {}
     specs = [
         ("rq1_opposition",         plot_ppo_rq1_opposition),
@@ -2951,7 +3358,7 @@ def generate_ppo_rq_graphs(checkpoint_results, seed_root, seed, dpi=150):
 
     for key, fn in specs:
         try:
-            abs_path = fn(checkpoint_results, out_dir, seed, dpi=dpi)
+            abs_path = fn(checkpoint_results, out_dir, seed, ach_steps=ach_steps, dpi=dpi)
             if abs_path and os.path.exists(abs_path):
                 rel = os.path.relpath(abs_path, seed_root).replace("\\", "/")
                 generated[key] = rel
@@ -2997,7 +3404,7 @@ def _build_step_grid(all_seed_results, n=500):
     return np.linspace(min(all_steps), max(all_steps), n)
 
 
-def plot_ppo_rq1_opposition_avg(all_seed_results, out_dir, dpi=150):
+def plot_ppo_rq1_opposition_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ1 (PPO averaged): Opposition score mean ± std across seeds."""
     step_grid = _build_step_grid(all_seed_results)
     mean, std, n = _avg_metric_across_seeds(
@@ -3019,10 +3426,21 @@ def plot_ppo_rq1_opposition_avg(all_seed_results, out_dir, dpi=150):
         "Low magnitude and high variance contrasts with Rainbow's stable 0.7–0.98"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq1_opposition_averaged.png")
@@ -3031,7 +3449,7 @@ def plot_ppo_rq1_opposition_avg(all_seed_results, out_dir, dpi=150):
     return path
 
 
-def plot_ppo_rq3_activation_rsa_avg(all_seed_results, out_dir, dpi=150):
+def plot_ppo_rq3_activation_rsa_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ3 (PPO averaged): Activation separation + RSA alignment, mean ± std."""
     step_grid = _build_step_grid(all_seed_results)
     sep_mean, sep_std, sep_n = _avg_metric_across_seeds(
@@ -3057,7 +3475,6 @@ def plot_ppo_rq3_activation_rsa_avg(all_seed_results, out_dir, dpi=150):
         f"PPO Averaged ({sep_n} seeds) — RQ3: Representational Emergence\n"
         "Activation separation (top) and RSA alignment ρ (bottom) over training"
     )
-    ax_top.legend(fontsize=9)
     ax_top.grid(True, alpha=0.3, linestyle="--")
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
@@ -3070,13 +3487,28 @@ def plot_ppo_rq3_activation_rsa_avg(all_seed_results, out_dir, dpi=150):
                             (rsa_mean - rsa_std)[fin_rsa],
                             (rsa_mean + rsa_std)[fin_rsa],
                             color=C_TEAL, alpha=0.2, label="± 1 std")
-        ax_bot.legend(fontsize=9)
     ax_bot.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
     ax_bot.set_ylabel("RSA Alignment (ρ)")
     _rq_fmt_millions(ax_bot)
     ax_bot.grid(True, alpha=0.3, linestyle="--")
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax_top, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    if ach_steps:
+        _add_all_achievement_markers(ax_bot, ach_steps, x_range=x_range)
+    h_top, _ = ax_top.get_legend_handles_labels()
+    ax_top.legend(handles=h_top + ach_handles, fontsize=8)
+    h_bot, _ = ax_bot.get_legend_handles_labels()
+    ax_bot.legend(handles=h_bot, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.03, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq3_activation_rsa_averaged.png")
@@ -3085,7 +3517,7 @@ def plot_ppo_rq3_activation_rsa_avg(all_seed_results, out_dir, dpi=150):
     return path
 
 
-def plot_ppo_rq3_coherence_avg(all_seed_results, out_dir, dpi=150):
+def plot_ppo_rq3_coherence_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ3 (PPO averaged): Coherence + gradient magnitude, mean ± std across seeds."""
     step_grid = _build_step_grid(all_seed_results)
     sc_mean, sc_std, sc_n = _avg_metric_across_seeds(
@@ -3121,7 +3553,6 @@ def plot_ppo_rq3_coherence_avg(all_seed_results, out_dir, dpi=150):
     ax_top.set_title(
         f"PPO Averaged ({sc_n} seeds) — RQ3: Gradient Coherence and Magnitude Over Training"
     )
-    ax_top.legend(fontsize=9)
     ax_top.grid(True, alpha=0.3, linestyle="--")
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
@@ -3142,10 +3573,25 @@ def plot_ppo_rq3_coherence_avg(all_seed_results, out_dir, dpi=150):
                             color=_C_FAILURE, alpha=0.15)
     ax_bot.set_ylabel("Gradient Magnitude")
     _rq_fmt_millions(ax_bot)
-    ax_bot.legend(fontsize=9)
     ax_bot.grid(True, alpha=0.3, linestyle="--")
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax_top, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    if ach_steps:
+        _add_all_achievement_markers(ax_bot, ach_steps, x_range=x_range)
+    h_top, _ = ax_top.get_legend_handles_labels()
+    ax_top.legend(handles=h_top + ach_handles, fontsize=8)
+    h_bot, _ = ax_bot.get_legend_handles_labels()
+    ax_bot.legend(handles=h_bot, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.03, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq3_coherence_averaged.png")
@@ -3154,7 +3600,7 @@ def plot_ppo_rq3_coherence_avg(all_seed_results, out_dir, dpi=150):
     return path
 
 
-def plot_ppo_rq3_coherence_vs_rsa_avg(all_seed_results, out_dir, dpi=150):
+def plot_ppo_rq3_coherence_vs_rsa_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ3 (PPO averaged): Coherence vs RSA scatter, all seeds pooled."""
     points = []
     for checkpoint_results in all_seed_results.values():
@@ -3222,6 +3668,8 @@ def generate_ppo_rq_graphs_averaged(all_seed_results, experiment_root, dpi=150):
     out_dir = os.path.join(experiment_root, "graphs", "rq")
     os.makedirs(out_dir, exist_ok=True)
 
+    ach_steps = _ach_steps_from_all_results(all_seed_results)
+
     generated = {}
     specs = [
         ("rq1_opposition_averaged",       plot_ppo_rq1_opposition_avg),
@@ -3231,7 +3679,7 @@ def generate_ppo_rq_graphs_averaged(all_seed_results, experiment_root, dpi=150):
     ]
     for key, fn in specs:
         try:
-            abs_path = fn(all_seed_results, out_dir, dpi=dpi)
+            abs_path = fn(all_seed_results, out_dir, ach_steps=ach_steps, dpi=dpi)
             if abs_path and os.path.exists(abs_path):
                 generated[key] = abs_path
                 print(f"  [avg RQ graph] {os.path.basename(abs_path)}")
@@ -3243,7 +3691,7 @@ def generate_ppo_rq_graphs_averaged(all_seed_results, experiment_root, dpi=150):
 
 # ── Seed-averaged Rainbow RQ graphs ──────────────────────────────────────────
 
-def plot_rq1_gradient_variants_avg(all_seed_results, out_dir, dpi=150):
+def plot_rq1_gradient_variants_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ1 (Rainbow averaged): cos(G_uniform, G_IS) + opposition score, mean ± std."""
     step_grid = _build_step_grid(all_seed_results)
     sc_mean, sc_std, sc_n = _avg_metric_across_seeds(all_seed_results, "cos_uniform_is_success", step_grid)
@@ -3286,10 +3734,25 @@ def plot_rq1_gradient_variants_avg(all_seed_results, out_dir, dpi=150):
     ax_bot.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.6)
     ax_bot.set_ylabel("Opposition Score  (cosine similarity)")
     _rq_fmt_millions(ax_bot)
-    ax_bot.legend(fontsize=9, loc="lower right")
     ax_bot.grid(True, alpha=0.3, linestyle="--")
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax_top, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    if ach_steps:
+        _add_all_achievement_markers(ax_bot, ach_steps, x_range=x_range)
+    h_top, _ = ax_top.get_legend_handles_labels()
+    ax_top.legend(handles=h_top + ach_handles, fontsize=8, loc="lower right")
+    h_bot, _ = ax_bot.get_legend_handles_labels()
+    ax_bot.legend(handles=h_bot, fontsize=8, loc="lower right")
+    if cluster_notes:
+        fig.text(0.01, -0.03, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq1_gradient_variants_averaged.png")
@@ -3298,7 +3761,7 @@ def plot_rq1_gradient_variants_avg(all_seed_results, out_dir, dpi=150):
     return path
 
 
-def plot_rq2_cos_is_reward_avg(all_seed_results, out_dir, dpi=150):
+def plot_rq2_cos_is_reward_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ2 (Rainbow averaged): cos(G_IS, G_reward) mean ± std across seeds."""
     step_grid = _build_step_grid(all_seed_results)
     s_mean, s_std, s_n = _avg_metric_across_seeds(all_seed_results, "cos_is_reward_success", step_grid)
@@ -3323,10 +3786,21 @@ def plot_rq2_cos_is_reward_avg(all_seed_results, out_dir, dpi=150):
         f"Rainbow Averaged ({s_n} seeds) — RQ2: Alignment of G_IS with Reward-Proximal Gradient"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq2_cos_is_reward_averaged.png")
@@ -3335,7 +3809,7 @@ def plot_rq2_cos_is_reward_avg(all_seed_results, out_dir, dpi=150):
     return path
 
 
-def plot_rq3_coherence_vs_rsa_avg(all_seed_results, out_dir, dpi=150):
+def plot_rq3_coherence_vs_rsa_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ3 (Rainbow averaged): coherence vs RSA_fighting scatter, all seeds pooled."""
     points = []
     for checkpoint_results in all_seed_results.values():
@@ -3425,7 +3899,7 @@ def _avg_mora_series(all_seed_results, mora_key, step_grid):
     return np.nanmean(mat, axis=0), np.nanstd(mat, axis=0), len(arrs)
 
 
-def plot_rq4_mora_budget_avg(all_seed_results, out_dir, dpi=150):
+def plot_rq4_mora_budget_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ4 (Rainbow averaged): MORA weighted gradient budget, mean across seeds."""
     step_grid = _build_step_grid(all_seed_results)
 
@@ -3483,11 +3957,22 @@ def plot_rq4_mora_budget_avg(all_seed_results, out_dir, dpi=150):
         f"Rainbow Averaged ({n} seeds) — RQ4: MORA Weighted Gradient Budget by Reward Sign"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9, loc="upper left")
     ax.set_ylim(0, 1)
     ax.grid(False)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8, loc="upper left")
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq4_mora_budget_averaged.png")
@@ -3496,7 +3981,7 @@ def plot_rq4_mora_budget_avg(all_seed_results, out_dir, dpi=150):
     return path
 
 
-def plot_rq4_mora_magnitude_log_avg(all_seed_results, out_dir, dpi=150):
+def plot_rq4_mora_magnitude_log_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ4 (Rainbow averaged): Per-transition gradient magnitude (log), mean ± std."""
     step_grid = _build_step_grid(all_seed_results)
     pos_m, pos_s, n = _avg_mora_series(all_seed_results, "gradient_magnitude_positive", step_grid)
@@ -3524,10 +4009,21 @@ def plot_rq4_mora_magnitude_log_avg(all_seed_results, out_dir, dpi=150):
         f"Rainbow Averaged ({n} seeds) — RQ4: Per-Transition Gradient Magnitude by Reward Sign"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--", which="both")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq4_mora_magnitude_log_averaged.png")
@@ -3536,7 +4032,7 @@ def plot_rq4_mora_magnitude_log_avg(all_seed_results, out_dir, dpi=150):
     return path
 
 
-def plot_rq4_mora_opposition_avg(all_seed_results, out_dir, dpi=150):
+def plot_rq4_mora_opposition_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ4 (Rainbow averaged): MORA cross-group opposition scores, mean ± std."""
     step_grid = _build_step_grid(all_seed_results)
 
@@ -3572,10 +4068,21 @@ def plot_rq4_mora_opposition_avg(all_seed_results, out_dir, dpi=150):
         f"Rainbow Averaged ({n_seeds} seeds) — RQ4: MORA Cross-Group Opposition Scores"
     )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+
+    x_range = (step_grid[0], step_grid[-1]) if len(step_grid) else None
+    ach_handles, cluster_notes = (
+        _add_all_achievement_markers(ax, ach_steps, x_range=x_range)
+        if ach_steps else ([], [])
+    )
+    h, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=h + ach_handles, fontsize=8)
+    if cluster_notes:
+        fig.text(0.01, -0.04, "\n".join(cluster_notes), fontsize=6, color="#444444",
+                 verticalalignment="top", horizontalalignment="left",
+                 transform=fig.transFigure)
 
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "rq4_mora_opposition_averaged.png")
@@ -3593,6 +4100,8 @@ def generate_rq_graphs_averaged(all_seed_results, experiment_root, dpi=150):
     out_dir = os.path.join(experiment_root, "graphs", "rq")
     os.makedirs(out_dir, exist_ok=True)
 
+    ach_steps = _ach_steps_from_all_results(all_seed_results)
+
     generated = {}
     specs = [
         ("rq1_gradient_variants_averaged",  plot_rq1_gradient_variants_avg),
@@ -3601,13 +4110,21 @@ def generate_rq_graphs_averaged(all_seed_results, experiment_root, dpi=150):
         ("rq4_mora_budget_averaged",        plot_rq4_mora_budget_avg),
         ("rq4_mora_magnitude_log_averaged", plot_rq4_mora_magnitude_log_avg),
         ("rq4_mora_opposition_averaged",    plot_rq4_mora_opposition_avg),
+        ("rq4_mora_opposition_separate_averaged", plot_rq4_mora_opposition_separate_avg),
     ]
     for key, fn in specs:
         try:
-            abs_path = fn(all_seed_results, out_dir, dpi=dpi)
-            if abs_path and os.path.exists(abs_path):
-                generated[key] = abs_path
-                print(f"  [avg RQ graph] {os.path.basename(abs_path)}")
+            result = fn(all_seed_results, out_dir, ach_steps=ach_steps, dpi=dpi)
+            # Some functions return a list of paths (separate graphs)
+            if isinstance(result, list):
+                for p in result:
+                    if p and os.path.exists(p):
+                        k = key + "_" + os.path.splitext(os.path.basename(p))[0]
+                        generated[k] = p
+                        print(f"  [avg RQ graph] {os.path.basename(p)}")
+            elif result and os.path.exists(result):
+                generated[key] = result
+                print(f"  [avg RQ graph] {os.path.basename(result)}")
         except Exception as exc:
             print(f"  [avg RQ graph] {key} failed: {exc}")
 
@@ -3635,22 +4152,33 @@ def generate_rq_graphs(checkpoint_results, seed_root, seed, dpi=150):
     out_dir = os.path.join(seed_root, "graphs", "rq")
     os.makedirs(out_dir, exist_ok=True)
 
+    ach_steps = _ach_steps_from_results(checkpoint_results)
+
     generated = {}
 
     specs = [
-        ("rq1_gradient_variants",  plot_rq1_gradient_variants),
-        ("rq2_cos_is_reward",      plot_rq2_cos_is_reward),
-        ("rq3_coherence_vs_rsa",   plot_rq3_coherence_vs_rsa),
-        ("rq4_mora_budget",        plot_rq4_mora_budget),
-        ("rq4_mora_magnitude_log", plot_rq4_mora_magnitude_log),
-        ("rq4_mora_opposition",    plot_rq4_mora_opposition),
+        ("rq1_gradient_variants",      plot_rq1_gradient_variants),
+        ("rq2_cos_is_reward",          plot_rq2_cos_is_reward),
+        ("rq3_coherence_vs_rsa",       plot_rq3_coherence_vs_rsa),
+        ("rq4_mora_budget",            plot_rq4_mora_budget),
+        ("rq4_mora_magnitude_log",     plot_rq4_mora_magnitude_log),
+        ("rq4_mora_opposition",        plot_rq4_mora_opposition),
+        ("rq4_mora_opposition_separate", plot_rq4_mora_opposition_separate),
     ]
 
     for key, fn in specs:
         try:
-            abs_path = fn(checkpoint_results, out_dir, seed, dpi=dpi)
-            if abs_path and os.path.exists(abs_path):
-                rel = os.path.relpath(abs_path, seed_root).replace("\\", "/")
+            result = fn(checkpoint_results, out_dir, seed, ach_steps=ach_steps, dpi=dpi)
+            # Some functions return a list of paths (separate graphs)
+            if isinstance(result, list):
+                for p in result:
+                    if p and os.path.exists(p):
+                        rel = os.path.relpath(p, seed_root).replace("\\", "/")
+                        k = key + "_" + os.path.splitext(os.path.basename(p))[0]
+                        generated[k] = rel
+                        print(f"  [RQ graph] {rel}")
+            elif result and os.path.exists(result):
+                rel = os.path.relpath(result, seed_root).replace("\\", "/")
                 generated[key] = rel
                 print(f"  [RQ graph] {rel}")
         except Exception as exc:

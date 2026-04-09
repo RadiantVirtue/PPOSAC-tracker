@@ -751,6 +751,104 @@ Rainbow normalises to float32 / 255.0 in agent.py.
   ACModelWrapper was removed when PPO switched from rl-starter-files to SB3.
   File retained to avoid stale import errors. Contains only a comment.
 
+8.12  shared/graphing.py  (main visualisation module, ~4200 lines)
+  Generates all analysis graphs from the JSON analysis logs produced by
+  analyze_checkpoint.py. Invoked as a CLI:
+    python shared/graphing.py <experiment_root> [--algorithm ppo|rainbow] [--dpi N]
+  Also imported by training scripts to generate per-seed and averaged RQ graphs.
+
+  KEY CONSTANTS:
+    ACHIEVEMENT_TIERS  — {ach_name: tier_int}  (Tier 1–4)
+    TIER_COLORS        — {1: green, 2: blue, 3: orange, 4: red}
+    ACHIEVEMENT_ORDER  — canonical ordered list of all 22 achievements
+
+  KEY HELPERS:
+    _cluster_achievements(ach_episodes, clump_window) → list of groups
+      Groups achievements whose step positions are within clump_window of
+      each other.  Used to avoid over-crowding on graphs.
+
+    _add_all_achievement_markers(ax, ach_steps, x_range=None) → (handles, cluster_notes)
+      Draws one dotted vertical line per achievement (or cluster) on ax.
+      Isolated achievements: tier-coloured dotted line (linestyle=":", lw=1.0).
+      Clustered achievements (within 2% of x-range): single grey dotted line.
+      Returns legend handles and a list of cluster description strings.
+      Used on EVERY graph type that has a step x-axis.
+      NOTE: replaces the older _add_tier_completion_lines (one line per tier,
+      last unlock only) — individual achievement markers are now the standard.
+
+    _ach_steps_from_results(checkpoint_results) → {ach_name: step_float}
+      Derives achievement → global step from a single seed's checkpoint_results
+      list (which contains both periodic and milestone records).
+      Builds ep→step table from periodic records; interpolates milestone episode
+      counts into step estimates.
+
+    _ach_steps_from_all_results(all_seed_results) → {ach_name: mean_step_float}
+      Mean achievement steps across all seeds.  Used for averaged graphs.
+
+  PERIODIC LINE-PLOT FACTORIES:
+    _plot_periodic_single(agg, periodic, seed_ids, metric, ...)
+    _plot_periodic_dual(agg, periodic, seed_ids, metric_a, metric_b, ...)
+      Both factories now call _add_all_achievement_markers internally;
+      callers pass ach_steps as before.
+
+  MAIN GRAPH CATEGORIES (in order of generation in main()):
+    [A] Periodic line plots (opposition, coherence, gradient magnitude,
+        activation separation/cosine, RSA alignment, episode counts,
+        cluster stats, threshold bounds) — all with individual achievement markers
+    [B] Milestone bar charts — per-achievement metric values
+    [C] Snapshot heatmaps and cluster charts — RDM + UMAP snapshots
+    [D] Per-seed individual graphs — raw + smoothed + average overlay
+    [E] Return vs metric dual-axis graphs — smoothed return (left) vs
+        each analysis metric (right) per seed and averaged across seeds
+    [F] Survival-event zoomed plots — metrics aligned to first survival unlock
+    [G] Rainbow Moment of Reward plots  (rainbow only)
+    [H] Rainbow weight-delta alignment  (rainbow only)
+
+  RQ-SPECIFIC GRAPHS (generate_rq_graphs / generate_rq_graphs_averaged):
+    Called from training scripts (not from main()).  All RQ functions now
+    accept ach_steps=None and call _add_all_achievement_markers.
+    generate_rq_graphs() and generate_rq_graphs_averaged() compute ach_steps
+    internally from the checkpoint_results — callers do not need to supply it.
+
+    Rainbow per-seed (generate_rq_graphs):
+      plot_rq1_gradient_variants   — 2-panel: cos(G_uniform,G_IS) + opposition
+      plot_rq2_cos_is_reward       — cos(G_IS, G_reward) per group
+      plot_rq3_coherence_vs_rsa    — scatter: coherence vs RSA (no step axis)
+      plot_rq4_mora_budget         — stacked area: gradient budget by reward sign
+      plot_rq4_mora_magnitude_log  — log-scale magnitude by reward sign
+      plot_rq4_mora_opposition     — 3-line combined: pos/neu/neg comparisons
+      plot_rq4_mora_opposition_separate — 3 SEPARATE graphs, one per comparison:
+        rq4_mora_opp_opp_pos_vs_neutral_seed{N}.png
+        rq4_mora_opp_opp_pos_vs_failure_seed{N}.png
+        rq4_mora_opp_opp_neutral_vs_failure_seed{N}.png
+
+    Rainbow averaged (generate_rq_graphs_averaged):
+      All of the above with _avg suffix + plot_rq4_mora_opposition_separate_avg
+      which saves rq4_mora_opp_{key}_averaged.png for each comparison.
+
+    PPO per-seed (generate_ppo_rq_graphs):
+      plot_ppo_rq1_opposition      — G_uniform opposition score
+      plot_ppo_rq3_activation_rsa  — 2-panel: activation separation + RSA ρ
+      plot_ppo_rq3_coherence       — 2-panel: coherence + gradient magnitude
+      plot_ppo_rq3_coherence_vs_rsa — scatter: coherence vs RSA (no step axis)
+
+    PPO averaged (generate_ppo_rq_graphs_averaged):
+      All of the above with _avg suffix.
+
+  OUTPUT DIRECTORY LAYOUT (under <experiment_root>/graphs/):
+    gradient_signal/    — opposition, coherence, gradient magnitude
+    activation_space/   — activation separation, cosine distance, combined
+    rsa/                — RSA alignment, RDM heatmaps
+    clustering/         — n_clusters, noise_fraction, cluster compositions
+    training_dynamics/  — episode counts, threshold bounds
+    summary/            — dashboard
+    per_seed/           — per-seed individual graphs
+    return_vs_metric/   — dual-axis return vs metric graphs
+    zoomed/             — survival-event zoom plots
+    moment_of_reward/   — Rainbow MORA plots  (rainbow only)
+    weight_delta/       — Rainbow weight-delta  (rainbow only)
+    rq/                 — all RQ-specific graphs
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 9. ANALYSIS ORCHESTRATION
