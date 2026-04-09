@@ -17,6 +17,7 @@ import torch
 from tqdm import tqdm
 
 from rainbow.model import DQN
+from shared.achievements import CRAFTER_ACHIEVEMENTS
 from shared.thresholding import partition_episodes
 from wrappers import make_crafter_env
 
@@ -57,7 +58,7 @@ def load_rainbow_nets(checkpoint_path: str, device: str = "cpu"):
     """Load frozen online + target DQN networks from a rich checkpoint.
 
     Returns:
-        (online_net, target_net, episode_count, args_ns)
+        (online_net, target_net, episode_count, global_step, args_ns)
     """
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
     args_dict = ckpt.get('args_dict', {})
@@ -92,8 +93,11 @@ def evaluate_frozen_policy(
     in [0, 1], matching the network's expected input format (history_length=3).
 
     Returns:
-        episodes:   list of EpisodeData namedtuples
-        eps_scores: list of float EPS scores (one per episode)
+        episodes:                  list of EpisodeData namedtuples
+        eps_scores:                list of float EPS scores (one per episode)
+        episodes_with_transitions: list of (EpisodeData, {ach: step_idx}) for RSA —
+                                   step_idx is the first step within the episode where
+                                   that achievement was newly unlocked.
     """
     online_net, _, _, _, args_ns = load_rainbow_nets(checkpoint_path, device)
     online_net.eval()
@@ -109,16 +113,22 @@ def evaluate_frozen_policy(
     ])
 
     # Per-env rolling buffers
-    env_obs     = [[] for _ in range(num_envs)]
-    env_actions = [[] for _ in range(num_envs)]
-    env_rewards = [[] for _ in range(num_envs)]
-    env_dones   = [[] for _ in range(num_envs)]
+    env_obs      = [[] for _ in range(num_envs)]
+    env_actions  = [[] for _ in range(num_envs)]
+    env_rewards  = [[] for _ in range(num_envs)]
+    env_dones    = [[] for _ in range(num_envs)]
+    env_prev_ach = [{a: False for a in CRAFTER_ACHIEVEMENTS} for _ in range(num_envs)]
+    env_trans    = [{} for _ in range(num_envs)]
+    env_step_idx = [0] * num_envs
 
-    episodes   = []
-    eps_scores = []
-    completed  = 0
+    episodes                  = []
+    eps_scores                = []
+    episodes_with_transitions = []
+    completed                 = 0
 
     obs, _ = vec_env.reset()
+    # Seed numpy random for reproducible ε-greedy noise given the same base_seed
+    np.random.seed(base_seed)
     pbar = tqdm(total=n_episodes, desc="Evaluating episodes", unit="ep")
 
     while completed < n_episodes:
@@ -142,30 +152,50 @@ def evaluate_frozen_policy(
             env_rewards[i].append(float(rewards[i]))
             env_dones[i].append(float(done))
 
-            if done and completed < n_episodes:
+            # Track first achievement unlock per step (for RSA stimulus detection)
+            if done:
+                raw_ach = {a: bool(infos["achievements"][a][i]) for a in CRAFTER_ACHIEVEMENTS}
+            else:
+                raw_ach_info = infos.get("achievements", {})
+                raw_ach = (
+                    {a: bool(raw_ach_info[a][i]) for a in CRAFTER_ACHIEVEMENTS}
+                    if isinstance(raw_ach_info, dict) else {}
+                )
+            for ach in CRAFTER_ACHIEVEMENTS:
+                if raw_ach.get(ach, False) and not env_prev_ach[i].get(ach, False) and ach not in env_trans[i]:
+                    env_trans[i][ach] = env_step_idx[i]
+            env_prev_ach[i] = {a: bool(raw_ach.get(a, False)) for a in CRAFTER_ACHIEVEMENTS}
+            env_step_idx[i] += 1
+
+            if done and completed < n_episodes:  # guard prevents over-collection beyond n_episodes
                 # Stack obs: (T,H,W,3) uint8 → (T,3,H,W) float32 [0,1]
                 obs_arr = np.array(env_obs[i], dtype=np.float32) / 255.0
                 obs_tensor = torch.from_numpy(obs_arr).permute(0, 3, 1, 2)  # (T,3,H,W)
 
-                episodes.append(EpisodeData(
+                ep_data = EpisodeData(
                     observations=obs_tensor,
                     actions=torch.tensor(env_actions[i], dtype=torch.long),
                     rewards=torch.tensor(env_rewards[i], dtype=torch.float32),
                     dones=torch.tensor(env_dones[i], dtype=torch.float32),
-                ))
+                )
+                episodes.append(ep_data)
                 eps_scores.append(float(infos["eps"][i]))
+                episodes_with_transitions.append((ep_data, env_trans[i]))
                 completed += 1
                 pbar.update(1)
 
                 # Reset this env's buffers
-                env_obs[i]     = []
-                env_actions[i] = []
-                env_rewards[i] = []
-                env_dones[i]   = []
+                env_obs[i]      = []
+                env_actions[i]  = []
+                env_rewards[i]  = []
+                env_dones[i]    = []
+                env_prev_ach[i] = {a: False for a in CRAFTER_ACHIEVEMENTS}
+                env_trans[i]    = {}
+                env_step_idx[i] = 0
 
     pbar.close()
     vec_env.close()
-    return episodes, eps_scores
+    return episodes, eps_scores, episodes_with_transitions
 
 
 def partition(episodes, eps_scores, mode: str = "eps", percentile_x: int = 25):

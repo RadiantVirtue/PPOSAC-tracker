@@ -45,9 +45,10 @@ def _non_sigma_keys(d: dict) -> list:
 def _state_delta_dict(prev_sd: dict, curr_sd: dict) -> dict:
     """Compute per-parameter weight change, excluding sigma params.
 
-    Returns {param_name: (curr - prev) tensor} for all non-sigma params.
+    Returns {param_name: (curr - prev) tensor} for keys present in both
+    state dicts (intersection), excluding NoisyLinear sigma params.
     """
-    keys = _non_sigma_keys(prev_sd)
+    keys = [k for k in _non_sigma_keys(prev_sd) if k in curr_sd]
     return {k: (curr_sd[k] - prev_sd[k]).float() for k in keys}
 
 

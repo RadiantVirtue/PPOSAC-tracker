@@ -1,46 +1,71 @@
 """Representational Similarity Analysis for Crafter (pixel observations).
 
-Stimulus set (per spec):
-  Resources: Wood, Stone, Iron, Coal
-  Threats:   Zombie, Skeleton  (Lava has no achievement signal — excluded)
-  Tools:     Wood Pickaxe, Stone Pickaxe, Iron Pickaxe (included if achieved)
+Stimulus set: all 22 Crafter achievements, mapped to human-readable labels.
 
 Stimulus detection: the frame at which an achievement is FIRST unlocked within
 an episode is used as the representative observation for that stimulus.
 This uses only info returned by env.step() at the moment it happens — no data leak.
 Episodes where an achievement was never unlocked contribute no frames for that stimulus.
 Only stimuli with at least one collected frame are included in the RDM.
+
+Grouping scheme (4 groups — items may belong to multiple groups):
+  Fighting:  Zombie, Skeleton, Wood/Stone/Iron Sword
+  Resource:  Wood, Stone, Iron, Coal, Wood/Stone/Iron Pickaxe
+  Crafting:  Wood/Stone/Iron Pickaxe, Wood/Stone/Iron Sword, Furnace
+  Housing:   Furnace, Table, Place Stone, Wake Up
+
+One RDM is built from all observed stimuli. Four independent Spearman ρ alignment
+scores are computed (one per group), so overlapping items contribute to all relevant
+scores. Ungrouped stimuli are included in the RDM but always count as cross-group.
 """
 import numpy as np
 import torch
 from scipy.stats import spearmanr
 
 
-# Achievement name → human-readable stimulus label
+# Achievement name → human-readable stimulus label (all 22 Crafter achievements)
 STIMULUS_ACHIEVEMENTS = {
-    "collect_wood":       "Wood",
-    "collect_stone":      "Stone",
-    "collect_iron":       "Iron",
-    "collect_coal":       "Coal",
-    "defeat_zombie":      "Zombie",
-    "defeat_skeleton":    "Skeleton",
-    "make_wood_pickaxe":  "Wood Pickaxe",
-    "make_stone_pickaxe": "Stone Pickaxe",
-    "make_iron_pickaxe":  "Iron Pickaxe",
+    "collect_wood":        "Wood",
+    "collect_stone":       "Stone",
+    "collect_iron":        "Iron",
+    "collect_coal":        "Coal",
+    "collect_diamond":     "Diamond",
+    "collect_sapling":     "Sapling",
+    "collect_drink":       "Drink",
+    "defeat_zombie":       "Zombie",
+    "defeat_skeleton":     "Skeleton",
+    "eat_plant":           "Eat Plant",
+    "eat_cow":             "Eat Cow",
+    "wake_up":             "Wake Up",
+    "place_table":         "Table",
+    "place_stone":         "Place Stone",
+    "place_furnace":       "Furnace",
+    "place_plant":         "Place Plant",
+    "make_wood_pickaxe":   "Wood Pickaxe",
+    "make_stone_pickaxe":  "Stone Pickaxe",
+    "make_iron_pickaxe":   "Iron Pickaxe",
+    "make_wood_sword":     "Wood Sword",
+    "make_stone_sword":    "Stone Sword",
+    "make_iron_sword":     "Iron Sword",
 }
 
-# Functional group for RDM ground-truth alignment
-STIMULUS_GROUPS = {
-    "Wood":          "Resource",
-    "Stone":         "Resource",
-    "Iron":          "Resource",
-    "Coal":          "Resource",
-    "Zombie":        "Threat",
-    "Skeleton":      "Threat",
-    "Wood Pickaxe":  "Tool",
-    "Stone Pickaxe": "Tool",
-    "Iron Pickaxe":  "Tool",
-}
+# Functional groups — frozensets of stimulus labels (items may appear in multiple groups)
+FIGHTING = frozenset({
+    "Zombie", "Skeleton",
+    "Wood Sword", "Stone Sword", "Iron Sword",
+})
+RESOURCE = frozenset({
+    "Wood", "Stone", "Iron", "Coal",
+    "Wood Pickaxe", "Stone Pickaxe", "Iron Pickaxe",
+})
+CRAFTING = frozenset({
+    "Wood Pickaxe", "Stone Pickaxe", "Iron Pickaxe",
+    "Wood Sword", "Stone Sword", "Iron Sword",
+    "Furnace",
+})
+HOUSING = frozenset({
+    "Furnace", "Table", "Place Stone", "Wake Up",
+})
 
 
 def _collect_stimulus_frames(episodes_with_transitions):
@@ -85,21 +110,23 @@ def _build_rdm(centroids, labels):
     return rdm
 
 
-def _alignment_score(rdm, labels):
-    """Spearman correlation between the RDM and a ground-truth same/different-group matrix.
+def _alignment_score(rdm, labels, group_set):
+    """Spearman ρ between the RDM and a binary GT matrix for one functional group.
 
-    Ground truth: 0 = same functional group, 1 = different group.
+    GT[i,j] = 0.0 if both labels[i] and labels[j] are in group_set, else 1.0.
+    Items not in group_set (including ungrouped stimuli) always contribute 1.0.
     Uses upper triangle only to avoid double-counting.
+    Returns None if insufficient variance in either vector.
     """
     n = len(labels)
     gt = np.array([
-        [0.0 if STIMULUS_GROUPS.get(labels[i]) == STIMULUS_GROUPS.get(labels[j]) else 1.0
+        [0.0 if (labels[i] in group_set and labels[j] in group_set) else 1.0
          for j in range(n)]
         for i in range(n)
     ])
     triu = np.triu_indices(n, k=1)
     rdm_vals, gt_vals = rdm[triu], gt[triu]
-    if len(rdm_vals) < 2 or np.std(rdm_vals) < 1e-8:
+    if len(rdm_vals) < 2 or np.std(rdm_vals) < 1e-8 or np.std(gt_vals) < 1e-8:
         return None
     corr, _ = spearmanr(rdm_vals, gt_vals)
     return float(corr)
@@ -115,22 +142,29 @@ def run_rsa(policy, episodes_with_transitions, layer_name, device="cpu"):
         device:                    torch device string
 
     Returns dict:
-        rdm              — n×n list-of-lists (or None if <2 stimuli found)
-        labels           — ordered list of stimulus names included
-        alignment_score  — Spearman ρ vs ground-truth group structure (or None)
-        n_stimuli        — number of stimuli with data
-        n_frames         — {stimulus: count of frames collected}
+        rdm                  — n×n list-of-lists (or None if <2 stimuli found)
+        labels               — ordered list of stimulus names included
+        alignment_fighting   — Spearman ρ vs Fighting group GT (or None)
+        alignment_resource   — Spearman ρ vs Resource group GT (or None)
+        alignment_crafting   — Spearman ρ vs Crafting group GT (or None)
+        alignment_housing    — Spearman ρ vs Housing group GT (or None)
+        n_stimuli            — number of stimuli with data
+        n_frames             — {stimulus: count of frames collected}
     """
     stimulus_obs = _collect_stimulus_frames(episodes_with_transitions)
     n = len(stimulus_obs)
+    n_frames = {k: len(v) for k, v in stimulus_obs.items()}
 
     if n < 2:
         return {
             "rdm": None,
             "labels": list(stimulus_obs.keys()),
-            "alignment_score": None,
+            "alignment_fighting": None,
+            "alignment_resource": None,
+            "alignment_crafting": None,
+            "alignment_housing":  None,
             "n_stimuli": n,
-            "n_frames": {k: len(v) for k, v in stimulus_obs.items()},
+            "n_frames":  n_frames,
         }
 
     centroids = {
@@ -139,12 +173,14 @@ def run_rsa(policy, episodes_with_transitions, layer_name, device="cpu"):
     }
     labels = sorted(centroids.keys())
     rdm = _build_rdm(centroids, labels)
-    alignment = _alignment_score(rdm, labels)
 
     return {
-        "rdm": rdm.tolist(),
-        "labels": labels,
-        "alignment_score": alignment,
-        "n_stimuli": len(labels),
-        "n_frames": {k: len(v) for k, v in stimulus_obs.items()},
+        "rdm":                rdm.tolist(),
+        "labels":             labels,
+        "alignment_fighting": _alignment_score(rdm, labels, FIGHTING),
+        "alignment_resource": _alignment_score(rdm, labels, RESOURCE),
+        "alignment_crafting": _alignment_score(rdm, labels, CRAFTING),
+        "alignment_housing":  _alignment_score(rdm, labels, HOUSING),
+        "n_stimuli":          len(labels),
+        "n_frames":           n_frames,
     }

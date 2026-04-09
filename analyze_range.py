@@ -11,7 +11,7 @@ from shared.storage import load_analysis_results
 
 @dataclass
 class Shared:
-    experiment_root: str = "experiment_root"
+    experiment_root: str = "ppo_experiment_root"
     n_eval_episodes: int = 1000
     device: str = "cpu"
     split_mode: str = "percentile"

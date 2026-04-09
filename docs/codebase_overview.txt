@@ -116,6 +116,8 @@ PPOSAC-tracker/
 ├── train_and_analyze.py        — top-level CLI dispatch (PPO or Rainbow)
 ├── analyze_checkpoint.py       — standalone per-checkpoint analysis pipeline
 ├── analyze_range.py            — batch analysis over a range of checkpoints
+├── redo_ppo_rsa.py             — re-run RSA on existing PPO analysis JSONs (4-group update)
+├── check_rainbow.py            — 10-stage verification suite for Rainbow pipeline
 ├── wrappers.py                 — Crafter environment adapters
 │
 ├── ppo/                        — PPO training and analysis
@@ -134,6 +136,7 @@ PPOSAC-tracker/
 │   ├── gradients.py
 │   ├── activations.py
 │   ├── sampling.py
+│   ├── rsa.py                  — RSA adapted for Rainbow obs format (channels-first float32)
 │   ├── moment_of_reward.py
 │   ├── weight_delta.py
 │   └── train_and_analyze.py
@@ -143,16 +146,17 @@ PPOSAC-tracker/
 │   ├── metrics.py
 │   ├── gradient_utils.py
 │   ├── thresholding.py
-│   ├── rsa.py
+│   ├── rsa.py                  — RSA for PPO (uses obs_to_tensor); 4-group scheme
 │   ├── activation_utils.py
+│   ├── format.py               — obs preprocessing (uint8 → float32 tensor)
 │   ├── storage.py
+│   ├── model.py                — placeholder (effectively empty)
 │   ├── tagged_buffer.py        — EpisodeStore (legacy SAC remnant, not used)
 │   ├── networks.py             — ACModelWrapper stub (PPO; now effectively empty)
 │   ├── reporting.py
 │   └── graphing.py
 │
 ├── docs/                       — methodology documentation
-│   ├── plan.md                 — dissertation structure and RQ framing
 │   ├── Dissertation_notes_v2.md — comprehensive methodology notes
 │   ├── Gradient Analysis v3.md — first formulation
 │   ├── Gradient Analysis v4.md — adds IS correction, percentile split
@@ -222,8 +226,8 @@ Rainbow normalises to float32 / 255.0 in agent.py.
   Output: 64-dimensional float32 vector per observation.
 
 6.2  Training  (ppo/train.py)
-  - Uses SB3's PPO.learn() with num_envs=16 parallel environments
-  - Each env seeded as seed + i*10_000
+  - Uses SB3's PPO.learn() with num_envs=16 parallel environments (SubprocVecEnv)
+  - Each env seeded as seed * 100_000 + i
   - Checkpoints saved at fixed step intervals (checkpoint_freq, default 50k steps)
   - Achievement-triggered checkpoints: when the policy first unlocks a new
     achievement tier, an extra checkpoint is saved immediately
@@ -232,23 +236,31 @@ Rainbow normalises to float32 / 255.0 in agent.py.
   - Returns log saved to logs/pporeturnlog.txt per episode
 
 6.3  Checkpoint format
-  SB3 .zip file format. Load with:
-    model = PPO.load(checkpoint_path, env=env, device=device)
+  SB3 .zip file format + a companion metadata file at {path}.meta.json containing
+  {"global_step": int, "episode_count": int}.
+  Load the model with:
+    model = PPO.load(checkpoint_path, device=device)   # no env= arg needed
+  Load metadata with:
+    meta = json.load(open(checkpoint_path + ".meta.json"))
   The policy is then at model.policy.
 
 6.4  Evaluation / Sampling  (ppo/sampling.py)
-  collect_episodes(model, n_episodes, seed, device):
-    - Runs a FROZEN policy (eval mode) for n_episodes complete episodes
-    - Single env, no parallelism during evaluation
-    - Returns list of EpisodeData namedtuples:
-        observations: Tensor (T, H, W, C) uint8
-        actions:      Tensor (T,) int64
-        rewards:      Tensor (T,) float32
-        dones:        Tensor (T,) float32
-        eps:          float (final EPS of this episode)
+  evaluate_frozen_policy(checkpoint_path, n_episodes, device, seed, num_envs=16):
+    - Loads the frozen SB3 PPO model from checkpoint_path internally
+    - Runs n_episodes complete episodes using AsyncVectorEnv (16 parallel envs)
+    - Each eval env seeded as base_seed + i * 10_000
+    - Returns THREE values:
+        episodes:                 list of EpisodeData namedtuples
+        eps_scores:               list of float (one per episode, final EPS)
+        episodes_with_transitions: list of (EpisodeData, {ach: step_idx}) for RSA
+    - EpisodeData fields (NO eps field — eps_scores returned separately):
+        observations: np array stacked to (T, H, W, C) uint8
+        actions:      list of int
+        rewards:      list of float
+        dones:        list of float
 
-  partition_episodes(episodes):
-    - Calls shared/thresholding.py with mode="percentile", percentile_x=25
+  partition_episodes(episodes, eps_scores, mode, percentile_x):
+    - Calls shared/thresholding.py
     - Returns (success_episodes, failure_episodes, threshold_info)
 
 6.5  Gradient Analysis  (ppo/gradients.py)
@@ -479,15 +491,18 @@ Rainbow normalises to float32 / 255.0 in agent.py.
     15 metrics total per checkpoint. Plotting suite in the same file.
 
 7.9  Sampling  (rainbow/sampling.py)
-  collect_episodes(agent, n_episodes, seed, device):
-    - Runs frozen Rainbow policy for n_episodes
-    - Single env during evaluation
-    - Returns list of EpisodeData:
-        observations: Tensor (T, 3, H, W) float32 in [0,1]
-        actions:      Tensor (T,) int64
-        rewards:      Tensor (T,) float32
-        dones:        Tensor (T,) float32
-        eps:          float
+  evaluate_frozen_policy(checkpoint_path, n_episodes, device, seed, num_envs=16):
+    - Loads online + target DQN from checkpoint internally
+    - Runs n_episodes complete episodes using AsyncVectorEnv (16 parallel envs)
+    - Returns THREE values:
+        episodes:                 list of EpisodeData namedtuples
+        eps_scores:               list of float (one per episode, final EPS)
+        episodes_with_transitions: list of (EpisodeData, {ach: step_idx}) for RSA
+    - EpisodeData fields (NO eps field — eps_scores returned separately):
+        observations: (T, 3, H, W) float32 in [0,1]
+        actions:      list of int
+        rewards:      list of float
+        dones:        list of float
 
     NOTE: Rainbow obs are already normalised (float32, channels-first),
     unlike PPO obs (uint8, channels-last). This matters when passing obs
@@ -579,35 +594,53 @@ Rainbow normalises to float32 / 255.0 in agent.py.
       - Mean split, no discarding.
       - Returns (success, failure, mean_eps)
 
-8.5  shared/rsa.py
-  Full RSA pipeline for PPO (and extensible to Rainbow).
+8.5  shared/rsa.py  and  rainbow/rsa.py
+  RSA is implemented for BOTH algorithms:
+    shared/rsa.py   — PPO version (uses policy.obs_to_tensor(), channels-last uint8)
+    rainbow/rsa.py  — Rainbow version (channels-first float32, no obs_to_tensor needed)
+
+  Both use the same 4-group scheme and all 22 Crafter achievements as potential stimuli.
 
   STIMULUS SET:
-    Resources: Wood, Stone, Iron, Coal  (from collect_* achievements)
-    Threats:   Zombie, Skeleton          (from defeat_* achievements)
-    Tools:     Wood Pickaxe, Stone Pickaxe, Iron Pickaxe
-    (Lava excluded: no achievement signal; Diamond excluded: too rare)
+    All 22 Crafter achievements. Each maps to a human-readable label (e.g.
+    "collect_wood" → "Wood"). Only stimuli actually achieved in the evaluated
+    episodes contribute frames to the RDM (low-tier achievements appear more often).
 
   STIMULUS DETECTION: The observation frame at which an achievement is
-  FIRST unlocked within an episode is used as the representative stimulus
-  frame. This is read from info["achievements"] at each step — no
-  privileged information. Only stimuli achieved at least once have data.
+  FIRST unlocked within an episode is the representative stimulus frame.
+  Read from info["achievements"] at each step — no data leak.
 
-  FUNCTIONAL GROUPS (ground-truth RDM):
-    Resources → same group; Threats → same group; Tools → same group
-    Cross-group dissimilarity = 1.0, within-group = 0.0
+  FUNCTIONAL GROUPS (4 groups, OVERLAPPING membership):
+    Fighting:  Zombie, Skeleton, Wood/Stone/Iron Sword
+    Resource:  Wood, Stone, Iron, Coal, Wood/Stone/Iron Pickaxe
+    Crafting:  Wood/Stone/Iron Pickaxe, Wood/Stone/Iron Sword, Furnace
+    Housing:   Furnace, Table, Place Stone, Wake Up
+    (An item can appear in multiple groups; ungrouped stimuli are in the
+    RDM but always count as cross-group)
 
-  run_rsa(policy, episodes_with_transitions, layer_name, device):
+  Four independent Spearman ρ alignment scores are computed, one per group.
+  Cross-group dissimilarity = 1.0, within-group = 0.0.
+
+  run_rsa(model_or_policy, episodes_with_transitions, layer_name, device):
     1. Collect stimulus frames per achievement label
-    2. Compute mean activation for each label's frame set
-    3. Build cosine dissimilarity RDM (n×n matrix)
-    4. Compute Spearman ρ between model RDM and functional-group RDM
-    Returns: {rdm, labels, alignment_score, n_stimuli, n_frames}
+    2. Compute mean activation per label (via forward hook)
+    3. Build cosine dissimilarity RDM (n×n matrix, n = observed stimuli count)
+    4. Compute Spearman ρ for each of the 4 groups
+    Returns: {rdm, labels, alignment_scores: {fighting, resource, crafting, housing},
+              n_stimuli, n_frames}
 
-  NOTE: RSA is currently implemented only for PPO. The pipeline uses
-  policy.obs_to_tensor() which is SB3-specific.
+8.6  shared/format.py
+  preprocess_images(obs_list) → np.ndarray (N, H, W, C) float32 in [0,1]
+    Converts a list of (H,W,C) uint8 numpy arrays to a stacked float32 array
+    normalised by / 255.0. Handles both list and array inputs.
+    Used in gradient and activation pipelines when explicit normalisation is needed
+    outside of obs_to_tensor().
 
-8.6  shared/activation_utils.py
+8.7  shared/model.py  (PLACEHOLDER — effectively empty)
+  Kept only to avoid stale import errors from old code. Contains only a comment.
+  All PPO network logic is in SB3's CnnPolicy directly.
+
+8.8  shared/activation_utils.py
   extract_activations(model, observations, layer_name, device,
                       flatten_output=False) → np.ndarray (N, D)
     Registers a forward hook on the named layer, runs all observations
@@ -628,18 +661,18 @@ Rainbow normalises to float32 / 255.0 in agent.py.
                                             "failure": np.ndarray}
     Mean activation vector per group (labels: 1=success, 0=failure).
 
-8.7  shared/storage.py
+8.9  shared/storage.py
   save_analysis_results(results, path): JSON dump with numpy type handling
   load_analysis_results(path): JSON load
   save_metadata(experiment_root, ppo_args, rainbow_args): writes metadata.json
   get_checkpoint_paths(experiment_root, algorithm): sorted list of .pt paths
 
-8.8  shared/tagged_buffer.py  (LEGACY — not used in active code)
+8.10  shared/tagged_buffer.py  (LEGACY — not used in active code)
   EpisodeStore: rolling deque of up to 200k transitions, each tagged with
   episode EPS. Designed for SAC offline analysis (never completed).
   save/load via pickle. Kept to avoid import errors.
 
-8.9  shared/networks.py  (STUB — effectively empty)
+8.11  shared/networks.py  (STUB — effectively empty)
   ACModelWrapper was removed when PPO switched from rl-starter-files to SB3.
   File retained to avoid stale import errors. Contains only a comment.
 
@@ -677,7 +710,20 @@ Rainbow normalises to float32 / 255.0 in agent.py.
   Iterates over a range of checkpoint files and calls analyze_checkpoint.py
   for each. Used for batch reanalysis of existing checkpoints.
 
-9.3  train_and_analyze.py  (top-level CLI)
+9.3  redo_ppo_rsa.py
+  Re-runs RSA on existing PPO analysis JSON files using the updated 4-group
+  scheme (Fighting, Resource, Crafting, Housing). Locates the corresponding
+  checkpoint from the JSON basename, evaluates episodes, and patches the JSON
+  in-place. Use this when the RSA grouping is changed without retraining.
+
+9.4  check_rainbow.py
+  10-stage verification suite for the Rainbow pipeline. Checks: file structure,
+  training progress, checkpoint integrity, analysis JSON schema, gradient /
+  activation / MOR / weight-delta sanity, cross-checkpoint consistency, and
+  report files. Outputs colored OK/WARN/FAIL lines; exits with code 0 if all
+  checks pass.
+
+9.5  train_and_analyze.py  (top-level CLI)
   Dispatch layer: accepts --algorithm ppo|rainbow plus all hyperparameters,
   routes to the appropriate ppo/train_and_analyze.py or
   rainbow/train_and_analyze.py sub-script.
@@ -703,13 +749,13 @@ TRAINING PHASE:
 ANALYSIS PHASE (per checkpoint):
   checkpoint.pt
     │
-    ├──► load model (PPO.load or torch.load)
+    ├──► evaluate_frozen_policy(checkpoint_path, n=1000)
+    │       │          (loads model internally; uses AsyncVectorEnv ×16)
+    │       ├──► episodes: list of EpisodeData(obs, actions, rewards, dones)
+    │       ├──► eps_scores: list of float (one per episode)
+    │       └──► episodes_with_transitions: list of (EpisodeData, {ach: step_idx})
     │
-    ├──► collect_episodes(model, n=1000)
-    │       │
-    │       └──► list of EpisodeData(obs, actions, rewards, dones, eps)
-    │
-    ├──► partition_episodes(episodes, percentile=25)
+    ├──► partition_episodes(episodes, eps_scores, percentile=25)
     │       │
     │       ├──► success_episodes (top 25% by EPS)
     │       └──► failure_episodes (bottom 25% by EPS)
@@ -727,9 +773,9 @@ ANALYSIS PHASE (per checkpoint):
     │       run_activation_analysis(model, success, failure)
     │       → {activations, projected, cluster_stats, centroids, labels}
     │
-    ├──► RSA (PPO only)
-    │       run_rsa(policy, episodes_with_transitions, layer_name)
-    │       → {rdm, labels, alignment_score}
+    ├──► RSA (PPO and Rainbow)
+    │       run_rsa(model_or_policy, episodes_with_transitions, layer_name)
+    │       → {rdm, labels, alignment_scores: {fighting, resource, crafting, housing}}
     │
     ├──► MOMENT OF REWARD (Rainbow only)
     │       run_moment_of_reward(online_net, success_episodes)
@@ -908,16 +954,22 @@ v5  (Gradient Analysis v5.md) — CURRENT:
   Always pass flatten_output=True to extract_activations() when hooking
   "convs". Forgetting this causes shape errors downstream.
 
-- shared/networks.py is EMPTY (just a comment). Do not import ACModelWrapper
-  from it — it does not exist. The file is kept only to not break legacy
-  imports.
+- shared/networks.py and shared/model.py are EMPTY placeholders (just a comment).
+  Do not import ACModelWrapper or anything from them — they do not exist.
+  Files kept only to not break legacy imports.
 
 - shared/tagged_buffer.py (EpisodeStore) is UNUSED in active code. It was
   designed for SAC. Do not attempt to use it — there is no active SAC
   pipeline.
 
-- Checkpoint loading for PPO: use PPO.load(path, env=env) not torch.load().
-  SB3 uses a zip format; torch.load will fail.
+- Checkpoint loading for PPO: use PPO.load(path, device=device) not
+  PPO.load(path, env=env) — no env argument is required. SB3 uses a zip
+  format; torch.load will fail. Load episode metadata from the companion
+  {path}.meta.json file.
+
+- EpisodeData for both PPO and Rainbow does NOT contain an eps field.
+  EPS scores are returned as a separate eps_scores list from
+  evaluate_frozen_policy(). Do not try to read episode.eps.
 
 - Checkpoint loading for Rainbow: use torch.load(path) and access keys
   "online_net_state_dict" and "target_net_state_dict". The args dict is

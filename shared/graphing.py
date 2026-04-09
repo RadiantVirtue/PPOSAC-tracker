@@ -205,7 +205,10 @@ _SCALAR_METRICS = [
     "activation_cosine_distance",
     "gradient_magnitude_success",
     "gradient_magnitude_failure",
-    "rsa_alignment",
+    "rsa_alignment_fighting",
+    "rsa_alignment_resource",
+    "rsa_alignment_crafting",
+    "rsa_alignment_housing",
     "n_success",
     "n_failure",
     "threshold_lower",
@@ -548,7 +551,7 @@ _RETURN_VS_METRIC_SPECS = [
     ("coherence_failure",           "Coherence (Failure)",      C_ORANGE_DARK,  None),
     ("activation_separation",       "Activation Separation",    C_INDIGO,       None),
     ("activation_cosine_distance",  "Activation Cosine Dist.",  C_VIOLET,       None),
-    ("rsa_alignment",               "RSA Alignment (ρ)",        C_TEAL,         0.0),
+    ("rsa_alignment_resource",      "RSA Align (Resource, ρ)",  C_TEAL,         0.0),
     ("gradient_magnitude_success",  "Grad Mag (Success)",       C_YELLOW_LIGHT, None),
     ("gradient_magnitude_failure",  "Grad Mag (Failure)",       C_YELLOW_DARK,  None),
 ]
@@ -1014,7 +1017,7 @@ _PER_SEED_SPECS = [
     ("gradient_magnitude_failure", "Gradient L2 Magnitude",    "Gradient Magnitude (Failure Group)",  C_YELLOW_DARK,  None, "gradient_signal"),
     ("activation_separation",      "Euclidean Distance",        "Activation Euclidean Separation",     C_INDIGO,       None, "activation_space"),
     ("activation_cosine_distance", "Cosine Distance",           "Activation Cosine Distance",          C_VIOLET,       None, "activation_space"),
-    ("rsa_alignment",              "Spearman \u03c1",           "RSA Alignment",                       C_TEAL,         0.0,  "rsa"),
+    ("rsa_alignment_resource",     "Spearman \u03c1",           "RSA Alignment (Resource)",            C_TEAL,         0.0,  "rsa"),
     ("cluster_stats.n_clusters",   "Cluster Count",             "Number of Activation Clusters",       "teal",         None, "clustering"),
     ("cluster_stats.noise_fraction","Noise Fraction",           "Activation Cluster Noise Fraction",   "brown",        None, "clustering"),
 ]
@@ -1235,28 +1238,54 @@ def plot_activation_combined(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
 
 
 def plot_rsa_alignment(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
-    # Filter to only steps where at least one seed has a valid rsa_alignment
-    valid_agg = [r for r in agg if r["rsa_alignment_mean"] is not None]
-    valid_periodic: dict[int, list] = {
-        step: [(sid, rec) for sid, rec in entries
-               if _get(rec, "rsa_alignment") is not None]
-        for step, entries in periodic.items()
+    """Plot 4 RSA alignment curves (Fighting / Resource / Crafting / Housing) on one axes."""
+    _GROUP_COLORS = {
+        "rsa_alignment_fighting": "#d62728",   # red
+        "rsa_alignment_resource": "#2ca02c",   # green
+        "rsa_alignment_crafting": "#ff7f0e",   # orange
+        "rsa_alignment_housing":  "#1f77b4",   # blue
     }
-    valid_periodic = {k: v for k, v in valid_periodic.items() if v}
+    _GROUP_LABELS = {
+        "rsa_alignment_fighting": "Fighting",
+        "rsa_alignment_resource": "Resource",
+        "rsa_alignment_crafting": "Crafting",
+        "rsa_alignment_housing":  "Housing",
+    }
 
+    # Only keep steps where at least one group has valid data
+    valid_agg = [
+        r for r in agg
+        if any(r.get(f"{m}_mean") is not None for m in _GROUP_COLORS)
+    ]
     if not valid_agg:
         print("  Skipping rsa_alignment plot (no valid data)")
         return
 
-    _plot_periodic_single(
-        valid_agg, valid_periodic, seed_ids,
-        metric="rsa_alignment",
-        title="PPO — RSA Alignment (Spearman ρ vs Ground-Truth RDM) Over Training\n"
-              "(only checkpoints with ≥2 stimuli plotted)",
-        ylabel="Spearman ρ",
-        out_dir=out_dir, filename="ppo_periodic_rsa_alignment.png",
-        ach_steps=ach_steps, dpi=dpi, hline=0.0, avg_color=C_TEAL,
+    steps = [r["step"] for r in valid_agg]
+
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    ax.axhline(0.0, color="grey", linestyle=":", linewidth=0.8, alpha=0.6)
+
+    for metric, color in _GROUP_COLORS.items():
+        means = [r.get(f"{metric}_mean") for r in valid_agg]
+        stds  = [r.get(f"{metric}_std", 0) or 0 for r in valid_agg]
+        # Replace None with nan for plotting
+        means_arr = np.array([m if m is not None else np.nan for m in means], dtype=float)
+        stds_arr  = np.array(stds, dtype=float)
+        _make_shaded_line(ax, steps, means_arr.tolist(), stds_arr.tolist(),
+                          color, _GROUP_LABELS[metric])
+
+    tier_handles = _add_tier_completion_lines(ax, ach_steps) if ach_steps else []
+    metric_handles, _ = ax.get_legend_handles_labels()
+    ax.legend(handles=metric_handles + tier_handles, loc="upper left", fontsize=8)
+
+    _apply_xaxis_millions(ax)
+    ax.set_ylabel("Spearman \u03c1")
+    ax.set_title(
+        "RSA Alignment (Spearman \u03c1 vs Ground-Truth RDM) Over Training\n"
+        "(Fighting / Resource / Crafting / Housing — items may appear in multiple groups)"
     )
+    _save_fig(fig, out_dir, "ppo_periodic_rsa_alignment.png", dpi)
 
 
 def plot_n_success_failure(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
@@ -1335,7 +1364,7 @@ def plot_summary_dashboard(agg, out_dir, dpi):
         ("opposition_score",              "Opposition Score",         "black",     None),
         ("activation_separation",         "Activation Eucl. Sep.",    "steelblue", None),
         ("activation_cosine_distance",    "Activation Cos. Dist.",    "darkorange", None),
-        ("rsa_alignment",                 "RSA Alignment (ρ)",        "purple",    0.0),
+        ("rsa_alignment_resource",        "RSA Align (Resource)",     "purple",    0.0),
         ("gradient_magnitude_success",    "Grad Mag (Success)",       "#1f77b4",   None),
         ("gradient_magnitude_failure",    "Grad Mag (Failure)",       "#d62728",   None),
         ("cluster_stats.n_clusters",      "N Clusters",               "teal",      None),
@@ -1452,7 +1481,10 @@ def plot_all_milestone_bars(mil_agg, metric_dirs: dict[str, str], dpi):
         ("activation_cosine_distance", "Activation Cosine Distance",          "PPO — Activation Cosine Distance at First Achievement Unlock"),
         ("coherence_success",          "Coherence (Success group)",           "PPO — Gradient Coherence (Success) at First Achievement Unlock"),
         ("coherence_failure",          "Coherence (Failure group)",           "PPO — Gradient Coherence (Failure) at First Achievement Unlock"),
-        ("rsa_alignment",              "RSA Alignment (Spearman \u03c1)",     "PPO — RSA Alignment at First Achievement Unlock"),
+        ("rsa_alignment_fighting",     "RSA Align \u03c1 (Fighting)",         "RSA Alignment — Fighting at First Achievement Unlock"),
+        ("rsa_alignment_resource",     "RSA Align \u03c1 (Resource)",         "RSA Alignment — Resource at First Achievement Unlock"),
+        ("rsa_alignment_crafting",     "RSA Align \u03c1 (Crafting)",         "RSA Alignment — Crafting at First Achievement Unlock"),
+        ("rsa_alignment_housing",      "RSA Align \u03c1 (Housing)",          "RSA Alignment — Housing at First Achievement Unlock"),
         ("episode",                    "Episode Count at Unlock",             "PPO — Episode Count at First Achievement Unlock"),
     ]
     for metric, xlabel, title in specs:
@@ -1952,7 +1984,10 @@ def main():
         "gradient_magnitude_failure": dirs["gradient"],
         "activation_separation":      dirs["activation"],
         "activation_cosine_distance": dirs["activation"],
-        "rsa_alignment":              dirs["rsa"],
+        "rsa_alignment_fighting":     dirs["rsa"],
+        "rsa_alignment_resource":     dirs["rsa"],
+        "rsa_alignment_crafting":     dirs["rsa"],
+        "rsa_alignment_housing":      dirs["rsa"],
         "episode":                    dirs["training"],
     }
     plot_all_milestone_bars(mil_agg, milestone_dirs, dpi)

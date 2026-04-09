@@ -171,7 +171,7 @@ def _log_return(experiment_root, ep_return):
 
 # ── Main training function ─────────────────────────────────────────────────────
 
-def main_rainbow(args, on_checkpoint_saved=None):
+def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
     """Train Rainbow DQN on Crafter.
 
     Args:
@@ -206,7 +206,8 @@ def main_rainbow(args, on_checkpoint_saved=None):
     # Optionally resume from a live checkpoint
     if getattr(args, 'model', None) and os.path.isfile(args.model):
         ckpt = torch.load(args.model, map_location='cpu', weights_only=False)
-        dqn.online_net.load_state_dict(ckpt['online_net_state_dict'])
+        # Bug 2: online_net already loaded by Agent.__init__ (rich checkpoint path);
+        # only reload target_net + optimiser here to avoid a redundant double-copy.
         dqn.target_net.load_state_dict(ckpt['target_net_state_dict'])
         dqn.optimiser.load_state_dict(ckpt['optimizer_state_dict'])
         resume_step = ckpt.get('global_step', 0)
@@ -219,6 +220,14 @@ def main_rainbow(args, on_checkpoint_saved=None):
     mem = ReplayMemory(args, args.memory_capacity)
 
     priority_weight_increase = (1 - args.priority_weight) / (args.T_max - args.learn_start)
+
+    # Bug 3: restore β to its correct annealed value at the resume step so that
+    # the IS schedule continues smoothly rather than restarting from β_start=0.4.
+    if resume_step > 0:
+        anneal_frac = max(0.0, min(1.0,
+            (resume_step - args.learn_start) / max(args.T_max - args.learn_start, 1)
+        ))
+        mem.priority_weight = args.priority_weight + (1 - args.priority_weight) * anneal_frac
 
     # Construct validation memory
     val_mem = ReplayMemory(args, args.evaluation_size)
@@ -239,12 +248,14 @@ def main_rainbow(args, on_checkpoint_saved=None):
     saved_paths = []
 
     # Two-pointer state for weight-delta preservation across milestone checkpoints
-    seen_achievements = set()
+    seen_achievements = set(seen_achievements) if seen_achievements else set()
     periodic_A = None        # penultimate periodic checkpoint path
     periodic_B = None        # last periodic checkpoint path
     last_periodic_step = 0   # training step at which periodic_B was saved
 
-    for T in trange(1 + resume_step, args.T_max + 1):
+    _POSTFIX_INTERVAL = 500   # update tqdm postfix every N steps
+    pbar = trange(1 + resume_step, args.T_max + 1)
+    for T in pbar:
         if done:
             state = env.reset()
             ep_return = 0.0
@@ -259,6 +270,15 @@ def main_rainbow(args, on_checkpoint_saved=None):
         if args.reward_clip > 0:
             reward = max(min(reward, args.reward_clip), -args.reward_clip)
         mem.append(state, action, reward, done)
+
+        buf_size = mem.capacity if mem.transitions.full else mem.transitions.index
+        if T % _POSTFIX_INTERVAL == 0:
+            buf_pct  = 100.0 * buf_size / mem.capacity
+            pbar.set_postfix(
+                buf=f"{buf_size:,}/{mem.capacity:,} ({buf_pct:.1f}%)",
+                learning=buf_size >= args.learn_start,
+                ep=episode_count,
+            )
 
         if done:
             episode_count += 1
@@ -280,7 +300,7 @@ def main_rainbow(args, on_checkpoint_saved=None):
                     )
                     _delete_ckpt(m_path)
 
-        if T >= args.learn_start:
+        if T >= args.learn_start and buf_size >= max(args.learn_start, args.batch_size * 10):
             mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)
 
             if T % args.replay_frequency == 0:

@@ -26,6 +26,10 @@ def label_from_path(path: str) -> str:
     m = re.match(r"milestone_first_(.+)_ep(\d+)", name)
     if m:
         return f"{m.group(1)} @ ep{m.group(2)}"
+    # Rainbow periodic checkpoint format: checkpoint_step2000000
+    m = re.match(r"checkpoint_step(\d+)", name)
+    if m:
+        return f"Step {int(m.group(1)):,}"
     m = re.match(r"sac_step(\d+)_ep(\d+)", name)
     if m:
         return f"Checkpoint step {int(m.group(1)):,} — {int(m.group(2)):,} episodes"
@@ -204,10 +208,52 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             "",
         ]
 
+        # ── Gradient Variant Analysis (RQ1 / RQ2) ────────────────────────────
+        if r.get("opposition_score_is") is not None:
+            beta = r.get("beta_used")
+            beta_label = f"β={beta:.3f}" if beta is not None else "β=?"
+            has_delta = r.get("cos_uniform_success_delta") is not None
+            lines += [
+                "### Gradient Variant Analysis (RQ1 / RQ2)", "",
+                f"| Variant | Opp. Score | Coh. (S) | Coh. (F) | Grad Mag (S) | Grad Mag (F) |",
+                "|---|---:|---:|---:|---:|---:|",
+                (
+                    f"| G_uniform |"
+                    f" {_f(r.get('opposition_score'))} |"
+                    f" {_f(r.get('coherence_success'))} |"
+                    f" {_f(r.get('coherence_failure'))} |"
+                    f" {_f(r.get('gradient_magnitude_success'))} |"
+                    f" {_f(r.get('gradient_magnitude_failure'))} |"
+                ),
+                (
+                    f"| G_IS ({beta_label}) |"
+                    f" {_f(r.get('opposition_score_is'))} |"
+                    f" {_f(r.get('coherence_success_is'))} |"
+                    f" {_f(r.get('coherence_failure_is'))} |"
+                    f" {_f(r.get('gradient_magnitude_success_is'))} |"
+                    f" {_f(r.get('gradient_magnitude_failure_is'))} |"
+                ),
+                "",
+                "| Directional Alignment | Success | Failure |",
+                "|---|---:|---:|",
+                f"| cos(G_uniform, G_IS) | {_f(r.get('cos_uniform_is_success'))} | {_f(r.get('cos_uniform_is_failure'))} |",
+                f"| cos(G_IS, G_reward)  | {_f(r.get('cos_is_reward_success'))} | {_f(r.get('cos_is_reward_failure'))} |",
+                "",
+            ]
+            if has_delta:
+                lines += [
+                    "| Weight-Delta Alignment | Success | Failure |",
+                    "|---|---:|---:|",
+                    f"| cos(G_uniform, Δθ) | {_f(r.get('cos_uniform_success_delta'))} | {_f(r.get('cos_uniform_failure_delta'))} |",
+                    f"| cos(G_IS, Δθ)      | {_f(r.get('cos_is_success_delta'))} | {_f(r.get('cos_is_failure_delta'))} |",
+                    f"| cos(G_reward, Δθ)  | {_f(r.get('cos_reward_success_delta'))} | {_f(r.get('cos_reward_failure_delta'))} |",
+                    "",
+                ]
+
         mor = r.get("moment_of_reward")
         if mor:
             lines += [
-                "### Moment of Reward (SAC)", "",
+                "### Moment of Reward (Rainbow)", "",
                 "| Subgroup | N transitions | Grad Mag | Coherence |",
                 "|---|---:|---:|---:|",
                 f"| Positive (r > 0) | {_fi(mor.get('n_positive'))} | {_f(mor.get('gradient_magnitude_positive'))} | {_f(mor.get('coherence_positive'))} |",

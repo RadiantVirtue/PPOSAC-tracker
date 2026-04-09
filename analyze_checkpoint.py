@@ -225,7 +225,7 @@ def _analyze_rainbow(args):
     )
 
     # Step 1: Sample & partition
-    episodes, eps_scores = evaluate_frozen_policy(
+    episodes, eps_scores, episodes_with_transitions = evaluate_frozen_policy(
         args.checkpoint_path, n_episodes=args.n_episodes, device=args.device,
         seed=getattr(args, "seed", None),
     )
@@ -274,13 +274,27 @@ def _analyze_rainbow(args):
     # Step 3: Activations (hook convs, flatten to 1024-dim)
     act_results = run_activation_analysis(online_net, success_eps, failure_eps, device=args.device)
 
-    # Step 4: Moment of Reward Analysis (uses uniform raw_failure for comparison)
+    # Step 4: RSA — uses all evaluation episodes (not filtered by success/failure)
+    from rainbow.rsa import run_rsa as rainbow_run_rsa, RAINBOW_HOOK_LAYER
+    rsa_results = rainbow_run_rsa(
+        online_net, episodes_with_transitions,
+        layer_name=RAINBOW_HOOK_LAYER, device=args.device,
+    )
+    print(
+        f"  RSA: {rsa_results['n_stimuli']} stimuli, "
+        f"fighting={rsa_results['alignment_fighting']}, "
+        f"resource={rsa_results['alignment_resource']}, "
+        f"crafting={rsa_results['alignment_crafting']}, "
+        f"housing={rsa_results['alignment_housing']}"
+    )
+
+    # Step 5: Moment of Reward Analysis (uses uniform raw_failure for comparison)
     mor_results = run_moment_of_reward_analysis(
         online_net, success_eps, raw_failure_grad=raw_failure, device=args.device,
         target_net=target_net, args_ns=args_ns,
     )
 
-    # Step 5: Weight-delta empirical validation (requires prev checkpoint)
+    # Step 6: Weight-delta empirical validation (requires prev checkpoint)
     delta_metrics = None
     if getattr(args, "prev_checkpoint_path", None):
         from rainbow.weight_delta import compute_weight_delta_metrics
@@ -293,7 +307,7 @@ def _analyze_rainbow(args):
         episode_count, args, threshold,
         success_eps, failure_eps,
         raw_success, raw_failure, s_mb, f_mb,
-        act_results, rsa_results=None, mor_results=mor_results,
+        act_results, rsa_results=rsa_results, mor_results=mor_results,
         grad_meta_success=grad_s, grad_meta_failure=grad_f,
         delta_metrics=delta_metrics,
     )
@@ -374,11 +388,15 @@ def _build_result(
         "gradient_magnitude_success": gradient_magnitude(raw_success),
         "gradient_magnitude_failure": gradient_magnitude(raw_failure),
         # ── RSA ───────────────────────────────────────────────────────────────
-        "rsa_alignment": rsa_results["alignment_score"] if rsa_results else None,
+        "rsa_alignment":          None,  # superseded by per-group scores below
+        "rsa_alignment_fighting": rsa_results.get("alignment_fighting") if rsa_results else None,
+        "rsa_alignment_resource": rsa_results.get("alignment_resource") if rsa_results else None,
+        "rsa_alignment_crafting": rsa_results.get("alignment_crafting") if rsa_results else None,
+        "rsa_alignment_housing":  rsa_results.get("alignment_housing")  if rsa_results else None,
         "rsa_n_stimuli": rsa_results["n_stimuli"] if rsa_results else 0,
-        "rsa_labels": rsa_results["labels"] if rsa_results else [],
-        "rsa_rdm": rsa_results["rdm"] if rsa_results else None,
-        "rsa_n_frames": rsa_results["n_frames"] if rsa_results else {},
+        "rsa_labels":    rsa_results["labels"]    if rsa_results else [],
+        "rsa_rdm":       rsa_results["rdm"]       if rsa_results else None,
+        "rsa_n_frames":  rsa_results["n_frames"]  if rsa_results else {},
         # ── Moment of Reward (Rainbow only) ───────────────────────────────────
         "moment_of_reward": mor_results,
         # ── IS-weighted metrics (Rainbow only) ────────────────────────────────
