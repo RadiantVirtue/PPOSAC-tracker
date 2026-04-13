@@ -16,13 +16,13 @@ import tyro
 @dataclass
 class Shared:
     """Arguments shared across runs."""
-    seeds: list[int] = field(default_factory=lambda: [3,4,5])
+    seeds: list[int] = field(default_factory=lambda: [5])
     experiment_root: str = "rainbow_experiment_root"
     n_eval_episodes: int = 1000
     split_mode: str = "percentile"
     percentile_x: int = 25
     auto_push: bool = False
-    device: str = "cuda"
+    device: str = "cpu"
     analyze_every: int = 1
 
 
