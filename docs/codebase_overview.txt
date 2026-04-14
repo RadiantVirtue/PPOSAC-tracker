@@ -52,19 +52,142 @@ RQ1 — Structural Gradient Signatures:
   Metrics: gradient coherence, opposition score, gradient magnitude,
            cos(G_IS, G_uniform), all compared across checkpoints.
 
-  FINDINGS (Rainbow seeds 1–2, 3M steps each):
-  cos(G_uniform, G_IS) = 0.953–0.999 across all training stages and both
-  groups. G_IS tracks G_uniform nearly exactly in direction throughout
-  training. Both opposition scores remain high and follow the same
-  trajectory (G_IS typically 0.05–0.2 lower than G_uniform, but both
-  well above 0.7 for most checkpoints). Rainbow gradient coherence is
-  consistently high: 0.83–0.98 (success) and 0.64–0.97 (failure).
-  PPO contrast: opposition score averages 0.35–0.59 across 5 seeds with
-  high variance (±0.1–0.4); coherence 0.05–0.4. The gradient signature
-  in on-policy PPO is far weaker and less stable than Rainbow.
-  ANSWER: Yes — the geometric differentiation of success/failure gradients
-  is robust to PER IS re-weighting throughout training. The directional
-  structure established by G_uniform is preserved under G_IS.
+  FINDINGS (Rainbow seeds 1–5, PPO seeds 1–5, 3M steps each):
+  cos(G_uniform, G_IS) = 0.953–0.999 across all checkpoints and both
+  groups — G_IS tracks G_uniform nearly exactly in direction throughout
+  training. This directional equivalence is not merely a technical
+  confirmation: if IS weights are directionally inert, then PER's credit
+  assignment function is mediated entirely through magnitude scaling.
+  Combined with the RQ4 finding that gradient magnitude in the success
+  pool is dominated by r>0 transitions at 33×, this means PER's credit
+  assignment reduces operationally to "weight by immediate reward" — the
+  sophisticated IS correction re-discovers reward proximity. The cos
+  result is therefore not a standalone confirmation; it is the
+  precondition for the MORA analysis, establishing that directional
+  information in the learning signal is not being supplied by PER at all.
+  Rainbow opposition: 0.65–0.97, stabilising by step 150k
+  with cross-seed std ±0.03. Rainbow coherence: 0.86–0.97 (success),
+  0.67–0.94 (failure). The early saturation of opposition requires
+  interpretation beyond the number. Rainbow achieves geometric
+  success/failure discrimination before it has unlocked any achievement in
+  live rollouts — but this does not indicate sophisticated credit
+  assignment. This interpretation depends on the RQ4 finding that
+  Rainbow's success gradient is dominated by r>0 transitions (33× the
+  magnitude of neutral transitions); taken together, the two results
+  suggest that the "success" group is functionally defined by episodes
+  containing reward moments, not by episodes where the agent executed a
+  coherent hierarchical strategy. On that cross-RQ reading, Rainbow's
+  opposition reflects discrimination between high-reward-density and
+  low-reward-density experience, not between successful and unsuccessful
+  approaches to the task structure. The saturation before any achievement
+  is unlocked is then a warning: the gradient geometry is fixed before the
+  agent has encountered the behavioural diversity of the hierarchical task,
+  which is why Rainbow milestone d_opp stays within ±0.12 for all
+  achievements (see below) — the geometry cannot respond to task structure
+  it has already committed to ignoring. This is consistent with RQ3's weak
+  RSA: if the opposition signal is not tracking task-structural success,
+  the representations cannot organise around task function.
+  PPO opposition is erratic early (individual seeds
+  reach –0.74 at step 300k), settles to 0.35–0.65 mid-late training with
+  cross-seed std ±0.15–0.44. PPO success coherence shows a recurring spike-before-collapse pattern
+  across all 5 seeds: individual peaks of 0.44–0.79 (seeds 2, 3, 5 reach
+  0.57–0.79; seeds 1, 4 reach 0.44–0.59) each followed by a sharp drop,
+  repeating at multiple points through training rather than as a single
+  event. The mechanism is EPS threshold stabilisation: when the top-25%
+  partition settles at a consistent tier level, successful episodes are
+  homogeneous in strategy and gradient direction → coherence spikes. When
+  the policy reliably starts reaching the next tier, the success pool
+  becomes bimodal (current-tier successes + next-tier successes with
+  different gradient signatures) → coherence collapses. This cycle repeats
+  at each tier boundary. Timing is anchored to EPS threshold movement, not
+  to first-unlock episode: seeds 2 and 5 peak at the T2/T3 boundary
+  (ep ~285–288), seed 3 peaks mid-T2 consolidation (ep=568 before T2
+  completes at ep=995), seeds 1 and 4 peak during T3 consolidation phases.
+  Cross-seed average coheres to 0.34 at step 50k but individual-seed peaks
+  are substantially higher and staggered in time.
+  The spike-before-collapse pattern co-occurs with the period of fastest
+  activation separation growth in RQ3: Tier-2 milestone gradient spikes
+  coincide with the sharpest increases in centroid cosine distance. This
+  is a temporal correlation, not an isolated causal claim — checkpoint-
+  level separation growth rates during vs. outside coherence windows were
+  not independently measured. What the data does support is that the two
+  phenomena are observationally linked: gradient coherence is high when
+  representational change is fastest, and low otherwise. This is consistent
+  with coherence windows being the periods when the gradient is sufficiently
+  aligned to push representations in a consistent direction, and the
+  contrast with Rainbow (high sustained coherence, flat separation) makes
+  sustained coherence alone an insufficient condition — but the within-PPO
+  directional claim remains correlational. This contrasts directly with
+  Rainbow, whose gradient coherence is high and sustained yet whose
+  activation separation does not grow (RQ3) — showing that sustained
+  coherence is not sufficient for representational reorganisation if the
+  coherence is not grounded in task-structural signal.
+  Failure coherence collapses to ~0.04 by step 3M — a different mechanism:
+  early-training failures are uniform (near-zero EPS, undifferentiated
+  early-game deaths), so the bottom-25% gradient pool is homogeneous. By
+  late training the policy has advanced and the same bottom-25% partition
+  captures diverse failure modes — different tech-tree stages, different
+  causes of death — producing gradients that cancel, not cohere. Unlike
+  success coherence, failure coherence does not recover: the failure pool
+  permanently diversifies as the EPS floor rises.
+  The structural implication is important: as agents improve, their failure
+  signal becomes less informative, not more. The very progress that makes
+  failures richer — reaching higher tiers before dying — also makes the
+  failure-gradient pool directionally uninformative, because different
+  high-tier failures require incompatible corrective actions. This is a
+  convergent property of hierarchical task learning, not an artefact of
+  the partitioning scheme. The coherence collapse confirms that the failure
+  group genuinely diversifies, but the deeper point is that improving
+  policies degrade their own failure-gradient signal — a structural
+  constraint on what failure-based learning can contribute in late training.
+  Milestone analysis (5 seeds): PPO Tier-2 achievements
+  (eat_cow d_opp +0.65, defeat_zombie +0.56, make_wood_pickaxe +0.48,
+  make_wood_sword +0.39, collect_stone +0.44) produce opposition spikes
+  well above the nearest periodic checkpoint. defeat_skeleton is the
+  exception (mean d_opp +0.07), and the mechanism is temporal: skeleton
+  unlock timing spans ep 113–792 across seeds (6× the variance of
+  defeat_zombie, ep 83–209), because defeating a skeleton requires weapon
+  proficiency and favourable night-time conditions. The d_opp spike
+  mechanism is coherence-gated — it requires coh_s > ~0.5 at the moment
+  of firing. Seeds where skeleton fires early (seed 2, ep=113, coh_s=0.85:
+  d_opp +0.80) show the expected Tier-2 spike; seeds where it fires after
+  coherence has degraded (seeds 1, 3: coh_s < 0.13) produce near-zero
+  d_opp. Seed 4's opposition of –0.81 at the milestone is not caused by
+  the achievement: its nearest periodic (ep=576) already reads opp=–0.53;
+  the true d_opp from baseline is only –0.29. Seed 4's gradient structure
+  had inverted before the skeleton kill — the milestone is a snapshot of
+  a pre-existing state, not a causal event.
+  The coherence-gating of d_opp spikes carries an implication for
+  representational learning: achievements that arrive after coherence has
+  degraded produce no measurable d_opp signal, and therefore no observable
+  gradient reorganisation at the milestone. The defeat_skeleton data
+  partially supports the timing interpretation — seeds where the kill occurs
+  early (high coherence) show the expected spike; seeds where it occurs late
+  (degraded coherence) do not — but skeleton's additional confounds (weapon
+  proficiency requirement, night-time dependency) mean timing and task
+  difficulty cannot be fully disentangled in this case. The cleaner claim,
+  supported by the data, is that d_opp spikes require coh_s > ~0.5 at the
+  moment of firing: gradient coherence is a necessary condition for
+  milestone-triggered reorganisation, regardless of the underlying cause
+  of coherence degradation.
+  Rainbow milestone d_opp stays within ±0.12 for all achievements.
+  This is not merely a confirmation that Rainbow's gradient saturates
+  early — it is evidence that Rainbow's gradient is structurally
+  unresponsive to task achievement. In a hierarchical environment where
+  different achievements require different preparatory behaviours, a
+  gradient that does not shift when new capabilities are unlocked is not
+  building differentiated task representations. This is consistent with
+  RQ3: Rainbow's RSA for crafting, housing, and resource functional groups
+  is all near zero or negative throughout training. These are exactly the
+  achievement domains with the longest preparatory chains and no
+  distinctive visual reward-moment signature — the domains where credit
+  assignment over distance matters most, and where Rainbow's gradient
+  geometry provides the least signal.
+  ANSWER: Yes — G_IS preserves the directional structure of G_uniform.
+  PPO's weaker average signal reflects punctuated learning: brief spikes
+  at Tier-2 discovery events against a low baseline, not uniform weakness.
+  GRAPH: x = training step, y = opposition score — both algorithms
+  (mean ± std across 5 seeds) on the same axes.
 
 RQ2 — PER and Directional Influence:
   To what extent does PER dictate direction in a learning signal (rather
@@ -73,27 +196,84 @@ RQ2 — PER and Directional Influence:
   Metrics: cos(G_IS, G_uniform), cos(G_IS, G_reward),
            empirical validation via cos(G_IS, Δθ) vs cos(G_uniform, Δθ).
 
-  FINDINGS (Rainbow seeds 1–2):
+  FINDINGS (Rainbow seeds 1–5):
   cos(G_uniform, G_IS) = 0.95–0.999 — IS re-weighting does not
-  substantially redirect gradient direction; it acts predominantly as a
-  magnitude scalar.
-  cos(G_IS, G_reward) = 0.15–0.97 for success (typically 0.7–0.95),
-  indicating IS weighting has a partial tendency to amplify reward-proximal
-  transitions but this is inconsistent across checkpoints.
-  Weight-delta validation (empirical):
+  substantially redirect gradient direction; it acts as a magnitude scalar.
+  cos(G_IS, G_reward) = 0.87–0.95 typically in mid-to-late training (full
+  range 0.15–0.97 across all checkpoints). The low-end outliers (~0.15)
+  occur in early training before the replay buffer diversifies sufficiently
+  for IS weights to converge; at that stage G_reward is dominated by the
+  few positive-reward transitions while G_IS still approximates a near-
+  uniform distribution, causing divergence. Once mid-training is reached
+  the two track closely at 0.87–0.95. Taken together with the
+  cos(G_uniform, G_IS) result of 0.95–0.999, all three gradient variants —
+  G_uniform, G_IS, and G_reward — point in nearly the same direction
+  throughout training. The analytical diversity of RQ2 (three variants,
+  three cosine comparisons) is therefore confirming a single null: PER's
+  IS correction adds no directional information to the learning signal.
+  The three variants are directionally redundant with each other and with
+  the unweighted mean gradient. This makes the RQ4 result harder to escape:
+  the only dimension along which PER actually differentiates transitions is
+  magnitude, and magnitude is dominated by r>0 transitions at 33×.
+  Gradient magnitude asymmetry: PPO and Rainbow have opposite relationships
+  to failure as a learning signal. In PPO, failure gradient magnitude
+  exceeds success in early training (step 100k: failure 0.242, success
+  0.147). This co-occurs with two other early-training observations: high
+  failure coherence in RQ1 (homogeneous early-game deaths produce a
+  consistent gradient pool) and negative RSA in RQ3 (representations
+  organised by difficulty/recency rather than functional category). These
+  three facts are mechanistically consistent with a regime in which early
+  learning is dominated by failure-derived signal — a strong, coherent
+  failure gradient shaping representations around survival failure before
+  functional task structure can emerge. Similarly, the reversal of the
+  magnitude asymmetry (success eventually dominates as the policy reaches
+  higher tiers) co-occurs with the RSA sign flip at step 1.0–1.3M,
+  consistent with the transition from failure-dominated to
+  success-dominated gradient enabling functional structure to emerge.
+  Note that the weight-delta result (below) precludes treating these
+  as causal claims; the magnitude asymmetry is the cross-RQ link that
+  makes the observational pattern coherent, not a demonstrated mechanism.
+  In Rainbow, success magnitude is ≥ failure throughout mid-to-late
+  training. The explanation for this requires the RQ4 result: r>0
+  transitions carry 33× the gradient magnitude of neutral transitions and
+  make up ~4% of the success pool. Given that, Rainbow's success-magnitude
+  dominance is not evidence of better credit assignment to successful
+  strategies — it reflects the distributional loss amplifying
+  reward-bearing transitions at the expense of the preparatory majority.
+  The magnitude asymmetry therefore has a completely different cause in
+  each algorithm: in PPO it reflects which class of episode dominates the
+  on-policy rollout; in Rainbow it reflects which transitions within
+  successful episodes dominate the offline gradient. Treating them as
+  symmetric cross-algorithm findings obscures this distinction.
+  Weight-delta validation (empirical, 5 seeds):
     cos(G_uniform, Δθ) ≈ –0.015 to +0.015
     cos(G_IS,      Δθ) ≈ –0.015 to +0.015
     cos(G_reward,  Δθ) ≈ –0.017 to +0.038
-  All three variants are near zero — none predicts the actual weight update
-  direction. This is a significant methodological finding: single-checkpoint
-  gradient snapshots do not capture the actual parameter trajectory, likely
-  because 50k training steps involve thousands of mini-batches that average
-  out the directional signal, and the distributional Bellman loss creates
-  gradient geometry that the episodic evaluation proxy does not capture.
-  ANSWER: PER does not substantially redirect gradient direction relative to
-  uniform sampling. The weight-delta validation fails for all variants,
-  limiting causal claims about PER's directional influence from these
-  proxies alone — itself a methodologically important finding.
+  No variant reliably predicts the actual weight update direction, and there
+  is no consistent ordering of G_IS > G_uniform. The near-zero alignment
+  for G_reward — which has the strongest a priori reason to correlate, as
+  it most directly mirrors the reward signal that drives online updates —
+  establishes that episodic gradient geometry and the online optimisation
+  trajectory are causally decoupled. The thousands of mini-batches between
+  checkpoints wash out any directional signal from a single evaluation
+  episode. This is not a limitation to acknowledge and move on from. It
+  establishes the correct epistemological status of all the other findings
+  in this paper: gradient opposition, coherence, and RSA correlations are
+  observational indicators of the learning regime (which class of
+  experience dominates, whether the gradient is coherent, whether the
+  policy has reached a tier boundary) — not causal accounts of the
+  parameter trajectory. The value of the episodic gradient as a diagnostic
+  is real, but its causal claim is nil. RQ2 demonstrates this empirically,
+  which is itself the contribution.
+  ANSWER: PER does not substantially redirect gradient direction; all three
+  gradient variants are directionally redundant. The weight-delta
+  validation demonstrates that episodic gradient geometry cannot serve as
+  a causal account of learning — a positive finding about the gap between
+  gradient diagnostics and actual optimisation dynamics, not merely a
+  limitation of the methodology.
+  GRAPH: x = training step, y = cos(G_variant, Δθ) for G_uniform, G_IS,
+  and G_reward — three lines, all near zero, confirming no variant
+  consistently predicts the actual weight update direction.
 
 RQ3 — Representational Emergence:
   Does the directional coherence of the learning signal (G_variant)
@@ -103,23 +283,90 @@ RQ3 — Representational Emergence:
            distance, RSA alignment score (Spearman ρ vs ground-truth
            functional RDM).
 
-  FINDINGS (Rainbow seeds 1–2; PPO seeds 1–5):
-  Rainbow activation separation grows steadily: ~0.04–0.3 early →
-  ~1.0–1.4 by 3M steps, correlating with persistently high gradient
-  coherence (0.83–0.97). Rainbow RSA sub-categories at later checkpoints:
-  fighting ρ ≈ 0.10–0.33 (weakly positive), resource/crafting/housing near
-  zero. Overall RSA is not computed for Rainbow (rsa_alignment = None) —
-  a gap in the pipeline.
-  PPO activation separation grows larger (0.8–1.0 → 3.2–5.0), but RSA
-  develops more clearly: starts negative (–0.4 to –0.6 early) and grows
-  to positive (0.15–0.39) by ~1.5M steps, despite PPO coherence being
-  only 0.05–0.4.
-  ANSWER: High gradient coherence in Rainbow correlates with growing
-  activation separation, consistent with representational emergence. But
-  weak RSA scores suggest structure is not strongly semantically organised.
-  PPO shows stronger RSA despite lower coherence, indicating gradient
-  coherence alone does not predict RSA quality — the relationship is
-  algorithm-specific and not a clean longitudinal predictor.
+  FINDINGS (Rainbow seeds 1–5; PPO seeds 1–5):
+  PPO activation separation grows monotonically: ~0.6–1.0 (step 50k) →
+  ~3.2–5.1 (step 3M); cosine distance grows ×60 over training. This
+  growth is not continuous — it is episodic, concentrated at Tier-2
+  discovery windows when the gradient is transiently coherent (RQ1:
+  spike-before-collapse). The ×60 figure reflects the cumulative effect
+  of several brief periods of coherent gradient pressure at tier
+  boundaries, not a steady training dynamic.
+  Rainbow activation separation stays in 0.28–1.16 throughout 3M steps
+  despite far higher gradient coherence. The RQ4 data is consistent with
+  one explanation for this: Rainbow's gradient in the success pool is
+  dominated by r>0 transitions at 33× magnitude, and by mid-training r>0
+  and r=0 are directionally antagonistic (opp → –0.830). Within the
+  success group, the two dominant gradient signals point away from each
+  other — one toward reward-moment states, one toward preparatory states.
+  Flat centroid separation is consistent with a regime in which this
+  internal antagonism prevents any single representational direction from
+  accumulating enough persistent pressure to produce measurable separation.
+  That the antagonism and the flat separation co-occur does not establish
+  that one causes the other, but the pattern is coherent and the RQ4
+  directional data provides a plausible mechanism.
+  Rainbow RSA (reported as four functional group scores; no single
+  composite is computed): fighting ρ ≈ 0.10–0.33 (consistently positive);
+  resource ≈ –0.10 to +0.06; crafting ≈ 0.0–0.21; housing ≈ –0.07 to 0.
+  The asymmetry across functional groups is not arbitrary. Fighting
+  achievements (defeat_zombie, defeat_skeleton) are more likely to carry
+  r>0 at the moment of the distinctive visual event (an enemy present
+  in the frame at the kill). Rainbow's reward-moment over-weighting
+  (RQ4) therefore accidentally concentrates gradient signal on combat
+  states that are also visually consistent, producing marginal fighting
+  RSA. The other three groups — resource, crafting, housing — require
+  long preparatory chains with no distinctive visual reward-moment
+  signature: the frame at which "collect_coal" yields reward looks
+  identical to many non-reward frames, and "make_iron_pickaxe" produces
+  reward in a crafting menu state that shares little visual structure
+  with the resource-gathering preceding it. These are precisely the
+  domains where credit assignment over temporal distance matters most,
+  and where Rainbow's gradient provides the least signal. The RSA
+  breakdown across functional groups is therefore a map of where
+  Rainbow's credit assignment fails by domain, not a composite judgment.
+  PPO RSA (5-seed average): negative early (–0.10 to –0.29 avg; individual
+  milestone checkpoints reach –0.61), crosses zero around step 1.0–1.3M
+  coinciding with Tier-3 achievement emergence (make_stone_pickaxe ~ep 4919,
+  make_stone_sword ~ep 4113), and stabilises at +0.10–0.20 in late training.
+  The early negative RSA is not an uninformative baseline — it has a
+  specific gradient cause. From RQ2, PPO's failure gradient magnitude
+  exceeds success in early training (0.242 vs. 0.147 at step 100k),
+  and from RQ1, early failure coherence is high (homogeneous early-game
+  deaths). A strong, coherent failure signal dominates the early
+  representational landscape: the network is first organised around
+  "what leads to early death," not around functional task categories.
+  Negative RSA reflects this ordering — the data is consistent with a
+  regime in which representations are calibrated to survival failure, with
+  functional task structure emerging only later.
+  The RSA sign flip at step 1.0–1.3M is the representational signature
+  of two coincident transitions: the failure pool permanently diversifying
+  into noise (RQ1: failure coherence → 0.04), removing the dominant
+  organising force, and the success pool reaching a tier-boundary
+  coherence window (RQ1: spike-before-collapse), providing a replacement.
+  The sign flip marks the moment the failure signal loses and the success
+  signal gains organising force — and the Tier-3 achievement timings are
+  the observable correlate, not the cause.
+  Coherence-without-structure paradox: Rainbow has higher gradient coherence
+  than PPO throughout training yet develops weaker RSA. The explanation lies
+  in what produces the coherence. Rainbow’s C51 distributional loss minimises
+  cross-entropy over 51 probability atoms — a geometrically consistent
+  objective that constrains gradient direction regardless of the semantic
+  content of the transitions. High coherence in Rainbow reflects loss-surface
+  stability, not that functionally similar states are being treated similarly.
+  PPO’s actor-critic loss is directly keyed to the policy’s actual action
+  decisions in specific states; gradients become consistent only when the
+  policy begins making functionally similar decisions in functionally similar
+  states, which is precisely when RSA turns positive. Rainbow’s coherence is
+  therefore an artefact of the distributional objective geometry, not a signal
+  that semantic structure is being built.
+  ANSWER: Gradient coherence in Rainbow correlates with activation
+  separation growth, but weak RSA scores show the structure lacks strong
+  semantic organisation. PPO develops clearer RSA despite lower coherence,
+  with a negative→positive trajectory tied to Tier-3 capability emergence.
+  Gradient coherence alone does not predict RSA quality — the two algorithms
+  decouple these properties by different mechanisms.
+  GRAPH: x = training step, y = RSA alignment (Spearman ρ) for PPO
+  (mean ± std across 5 seeds), with a horizontal zero-line and Tier-3
+  achievement unlock timings marked as vertical annotations.
 
 RQ4 — Moment of Reward Analysis (MORA):
   How is the learning signal distributed across the temporal phases of a
@@ -130,25 +377,56 @@ RQ4 — Moment of Reward Analysis (MORA):
            the success pool), per-subgroup gradient magnitude and
            coherence, cos(G_IS_r_zero, G_uniform_r_zero).
 
-  FINDINGS (Rainbow seeds 1–2, representative mid-to-late training):
-  Transition counts per checkpoint: positive ~800–4,000;
-  neutral ~42,000–70,000; negative ~1,300–1,900.
-  Gradient magnitudes: positive 5–10× neutral (coherence 0.96–0.99);
-  neutral low (0.17–0.42, coherence 0.97–0.99); negative moderate
-  (2.9–7.0, coherence 0.64–0.99).
-  Opposition scores: Positive vs Neutral = –0.37 to –0.87 (strongly
-  opposing directions — reward-moment and neutral-step gradients push
-  the network in near-opposite directions throughout training).
-  Positive vs Failure = –0.57 to +0.93 (highly variable).
-  Neutral vs Failure = –0.65 to +0.35 (mostly mixed/slightly negative).
-  ANSWER: Rainbow's credit assignment strongly amplifies immediate reward
-  transitions in gradient magnitude (5–10× neutral) with opposing gradient
-  directions between reward and neutral steps, confirming over-weighting of
-  immediate reward feedback. However, neutral transitions dominate by count
-  (~45k–70k vs ~800–4k positive), so their collective contribution to the
-  mean gradient is substantial despite individually low magnitude. This
-  tension is precisely the credit assignment challenge in Crafter's
-  sparse-reward environment.
+  FINDINGS (Rainbow seeds 1–5, mid-to-late training):
+  Transition counts: r>0 ~800–4,000 (≈4% of success pool); r=0
+  ~42,000–70,000 (≈93%); r<0 ~1,300–1,900 (≈3%). Gradient magnitudes
+  at step 1.5M (seed 1): positive 10.62, neutral 0.315, negative 2.878
+  — a ~33× ratio between positive and neutral. Both r>0 and r=0 show
+  coherence 0.96–0.99, so their opposition is between two internally
+  consistent signals, not noise.
+  Temporal evolution of opp(r>0, r=0) — a developing antagonism:
+    step  100k: +0.014  (aligned, no opposition)
+    step  300k: +0.189
+    step  450k: –0.428
+    step 1500k: –0.745
+    step 1700k: –0.830  (near-maximal opposition)
+  This trajectory is consistent across all 5 seeds.
+  The suppression framing matters: opp(r=0, failure) ≈ –0.56 at step 1.5M
+  shows that preparatory transitions are not weak or uninformative — they
+  are directionally opposed to failure gradients, meaning they carry real
+  discriminative signal about successful behaviour. The 33× magnitude
+  advantage of reward-moment transitions actively overrides this signal,
+  not merely outcompetes a weak one. This is a stronger claim than
+  "reward moments dominate": the neutral gradient is meaningful and is
+  being suppressed. Neutral transitions dominate by count (~45k–70k vs
+  ~800–4k positive), so their collective contribution to the mean gradient
+  is substantial despite individually low magnitude per step.
+  The r<0 subgroup (~3% of success pool, ~1,300–1,900 transitions) consists
+  of penalised moments within winning episodes — likely failed attacks,
+  environmental damage, or wasted resources that the episode recovered from.
+  At step 1.5M their gradient magnitude is 2.878 (~9× the neutral magnitude
+  of 0.315), meaning penalised transitions within successful trajectories
+  carry disproportionately large gradient weight despite their scarcity.
+  The directional relationship between r<0 and the other subgroups was not
+  measured; no mechanistic claim about conflict between signals is made here.
+  Positive vs Failure opposition ranges from –0.57 to +0.93 across
+  checkpoints — substantially more variable than the opp(r>0, r=0)
+  trajectory. This is consistent with the overall failure group being
+  heterogeneous: the opposition between reward-moment transitions and the
+  failure pool depends on which failure modes are in the bottom-25%
+  partition at each checkpoint, and that composition shifts as the EPS
+  floor rises. The variability is therefore a property of the failure group,
+  not of the reward-moment signal itself.
+  ANSWER: Rainbow's credit assignment over-weights immediate reward
+  transitions by ~33× in gradient magnitude, actively suppressing a real
+  preparatory signal (evidenced by opp(r=0, failure) = –0.56). The growing
+  directional opposition between achievement and preparatory gradients is a
+  developing property of training — not a fixed structural feature —
+  becoming most severe in mid-to-late training. This is the credit
+  assignment challenge in Crafter made quantitatively visible.
+  GRAPH: x = training step, y = opp(r>0, r=0) — averaged across 5
+  seeds with confidence band, showing the trajectory from near-zero
+  early to –0.83 by step 1.7M.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -238,6 +516,22 @@ PPOSAC-tracker/
 │   ├── Gradient Analysis v5.md — adds joint IS normalisation, weight-delta
 │   ├── PER_GRADIENT_BIAS.md    — detailed justification of IS reconstruction
 │   └── hyperparameter_defence.txt
+│
+├── dissertation_graphs/        — standalone dissertation visualisation scripts
+│   ├── run_all.py              — master runner (all 10 scripts in one command)
+│   ├── ppo/
+│   │   ├── plot_rq3_rsa_alignment.py      — RQ3: PPO RSA, mean+/-std, Tier-3 markers
+│   │   ├── plot_milestone_delta_bar.py    — PPO d_opp bar chart
+│   │   ├── plot_all_metrics.py            — all metrics vs step, PPO (~18 PNGs)
+│   │   └── plot_achievement_zooms.py      — per-achievement zoom charts, PPO
+│   ├── rainbow/
+│   │   ├── plot_rq2_weight_delta.py       — RQ2: cos(G_variant, delta_theta)
+│   │   ├── plot_rq4_mora_opp_pos_neutral.py — RQ4: opp(r>0, r=0) trajectory
+│   │   ├── plot_all_metrics.py            — all metrics vs step, Rainbow (~26 PNGs)
+│   │   └── plot_achievement_zooms.py      — per-achievement zoom charts, Rainbow
+│   └── shared/
+│       ├── plot_rq1_cross_algorithm.py    — RQ1: PPO vs Rainbow opposition
+│       └── plot_milestone_delta_comparison.py — core contrast: PPO vs Rainbow d_opp
 │
 └── ppo_experiment_root/        — active experiment outputs
     └── seed_<N>/
@@ -1166,25 +1460,158 @@ v5  (Gradient Analysis v5.md) — CURRENT:
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-15. CURRENT PROJECT STATUS (as of 2026-03-30)
+15. DISSERTATION GRAPHS  (dissertation_graphs/)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Standalone visualisation scripts for the dissertation.  Completely
+separate from shared/graphing.py (which auto-generates per-experiment
+graphs during training).  These scripts are invoked directly against
+finished experiment roots and produce publication-ready PNGs.
+
+All scripts share a common pattern:
+  - Local _load_all_seed_results() / _load_checkpoint_results() to load
+    JSON analysis logs from analysis_logs/<algorithm>/*.json
+  - Imports from shared/graphing.py for colour constants, averaging
+    helpers, and achievement markers (does NOT invoke graphing.main())
+  - plot(root, out_dir, dpi) entry point — callable by run_all.py
+  - __main__ block with argparse for standalone invocation
+  - Outputs to <script_dir>/output/<subdir>/ by default
+
+Run all 10 scripts at once:
+  python dissertation_graphs/run_all.py \
+      --ppo_root ppo_experiment_root \
+      --rainbow_root rainbow_experiment_root
+
+15.1  Primary RQ graphs (6)  — one graph each, named outputs
+
+  shared/plot_rq1_cross_algorithm.py
+    PPO vs Rainbow opposition score on the same axes, mean +/- std.
+    Colours: PPO = _C_UNIFORM (dark blue), Rainbow = C_RED.
+    Output: shared/output/rq1_cross_algorithm_opposition.png
+
+  rainbow/plot_rq2_weight_delta.py
+    cos(G_uniform/IS/reward, delta_theta) for Rainbow, all three lines
+    near zero — the negative result confirming offline gradients do not
+    predict the actual weight update direction.
+    Output: rainbow/output/rq2_weight_delta_rainbow_averaged.png
+
+  ppo/plot_rq3_rsa_alignment.py
+    PPO RSA alignment (Spearman rho), mean +/- std, with Tier-3
+    achievement unlock markers in orange.  RSA field: tries single
+    "rsa_alignment" key first, falls back to nanmean of the four group
+    fields (fighting/resource/crafting/housing).
+    Output: ppo/output/rq3_rsa_alignment_ppo_averaged.png
+
+  rainbow/plot_rq4_mora_opp_pos_neutral.py
+    opp(r>0, r=0) trajectory for Rainbow — near-zero at step 100k,
+    deteriorating to -0.83 by step 1.7M.  Uses _avg_mora_series().
+    Output: rainbow/output/rq4_mora_opp_pos_neutral_rainbow_averaged.png
+
+  ppo/plot_milestone_delta_bar.py
+    PPO d_opp horizontal bar chart.  d_opp = milestone_opposition -
+    nearest_periodic_opposition (matched by episode count, same seed).
+    Bars coloured by tier, sorted by mean d_opp descending.
+    Output: ppo/output/milestone_delta_bar_ppo.png
+
+  shared/plot_milestone_delta_comparison.py
+    Two-panel (left = PPO, right = Rainbow) d_opp bar chart, same
+    achievement ordering (sorted by PPO d_opp), linked x-axis limits.
+    Core contrast: PPO spikes up to +0.65, Rainbow flat within +/-0.12.
+    Output: shared/output/milestone_delta_comparison.png
+
+15.2  Supplementary: per-metric timeseries  — one PNG per metric
+
+  ppo/plot_all_metrics.py
+    Generates ~18 PNGs in ppo/output/metrics/ — one per metric,
+    mean +/- std across 5 seeds with achievement markers and clustering.
+
+    Scalar metrics (12):
+      opposition_score, coherence_success, coherence_failure,
+      gradient_magnitude_success, gradient_magnitude_failure,
+      activation_separation, activation_cosine_distance,
+      rsa_alignment_fighting, rsa_alignment_resource,
+      rsa_alignment_crafting, rsa_alignment_housing,
+      opposition_score_is
+
+    MORA metrics (6, via _avg_mora_series):
+      opp_pos_vs_neutral, opp_pos_vs_failure, opp_neutral_vs_failure,
+      gradient_magnitude_positive, gradient_magnitude_neutral,
+      gradient_magnitude_negative
+
+  rainbow/plot_all_metrics.py
+    Same as PPO version but with Rainbow-only extras (~26 PNGs total):
+
+    Additional scalar metrics (8):
+      cos_uniform_success_delta, cos_is_success_delta,
+      cos_reward_success_delta,  cos_uniform_failure_delta,
+      cos_is_failure_delta,      cos_reward_failure_delta,
+      cos_uniform_is_success,    cos_uniform_is_failure
+
+    Same 6 MORA metrics as PPO.
+
+  Colour conventions (consistent with RQ graphs):
+    opposition_score        C_RED          #d62020
+    coherence_success       C_ORANGE_LIGHT #ff8c00
+    coherence_failure       C_ORANGE_DARK  #b85c00
+    gradient_magnitude_s    C_YELLOW_LIGHT #c8a000
+    gradient_magnitude_f    C_YELLOW_DARK  #806000
+    activation_separation   C_INDIGO       #3a3acc
+    activation_cosine_dist  C_VIOLET       #8020c0
+    rsa_alignment_*         C_TEAL         #008080
+    MORA positive           _C_POS_MOR     #2ca02c
+    MORA neutral            _C_NEU_MOR     #1f77b4
+    MORA negative           _C_NEG_MOR     #d62728
+    weight-delta success    C_DELTA_*_S    (dark: uniform/IS/reward)
+    weight-delta failure    C_DELTA_*_F    (lighter versions)
+
+15.3  Supplementary: achievement zoom charts
+
+  ppo/plot_achievement_zooms.py
+  rainbow/plot_achievement_zooms.py
+
+    For each achievement in milestone data, one PNG per key metric,
+    centred on the mean achievement unlock step, showing a +/-200k-step
+    window averaged across all seeds that reached it.
+
+    Key metrics zoomed (5):
+      opposition_score, coherence_success, coherence_failure,
+      gradient_magnitude_success, gradient_magnitude_failure
+
+    Output: <alg>/output/zooms/<achievement>_<metric>.png
+      e.g.  ppo/output/zooms/eat_cow_opposition_score.png
+
+    Implementation detail: milestone records store episode count, not
+    global step.  The scripts build a per-seed (episode, step) lookup
+    from periodic records and use np.interp to convert milestone episode
+    to step.  Zoom window is symmetric around the interpolated unlock
+    step.  Seeds with fewer than 2 periodic checkpoints in the window
+    are skipped (printed warning, no crash).  Window size configurable
+    via --window CLI arg (default 200000).
+
+    x-axis label: steps relative to unlock, formatted as "Nk" ticks.
+    Gold dashed vertical line at x=0 marks the unlock moment.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. CURRENT PROJECT STATUS (as of 2026-04-13)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 COMPLETE:
   - Full PPO training + analysis pipeline (gradient, activation, RSA)
   - Full Rainbow training + analysis pipeline (gradient with 3 variants,
     activation, moment-of-reward, weight-delta validation)
-  - Methodology documentation (v3→v5 gradient analysis, PER_GRADIENT_BIAS)
+  - Methodology documentation (v3->v5 gradient analysis, PER_GRADIENT_BIAS)
   - Shared utilities and environment wrappers
-  - Multi-seed experiment infrastructure
-  - Active experiments running under ppo_experiment_root/seed_*/
+  - Multi-seed experiment infrastructure (5 seeds each, PPO and Rainbow)
+  - RQ1-4 findings fully documented in docs/codebase_overview.txt
+  - Dissertation graphs: all 10 scripts in dissertation_graphs/ complete
+      Primary (6): RQ1-4 graphs + two milestone d_opp charts
+      Supplementary (4): per-metric timeseries + achievement zoom charts
 
 IN PROGRESS / PENDING:
-  - Results section of dissertation (RQ1-3 answers are placeholders)
-  - Rainbow experiments at dissertation scale
-  - Cross-algorithm activation comparison (PPO 64-dim vs Rainbow 1024-dim)
-  - RSA for Rainbow (run_rsa uses policy.obs_to_tensor which is SB3-specific;
-    needs adaptation for Rainbow's normalisation)
-  - Writing up figures and statistical summaries from analysis JSON logs
+  - Writing the dissertation results section
+  - Cross-algorithm activation structure comparison (PPO 64-dim vs
+    Rainbow 1024-dim) — noted as future work in RQ3 findings
 
 DISCARDED:
   - discarded_results/ directory contains preliminary runs and old figures
