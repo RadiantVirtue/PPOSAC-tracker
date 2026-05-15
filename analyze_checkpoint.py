@@ -11,6 +11,8 @@ gradient_magnitude is reported per-algorithm only (absolute scale differs).
 RSA has been removed — pixel observations make object-index stimulus sets
 inapplicable to Crafter.
 """
+from __future__ import annotations
+
 import argparse
 import os
 import sys
@@ -34,6 +36,9 @@ def analyze_checkpoint(
     percentile_x: int = 25,
     seed: int = None,
     prev_checkpoint_path: str = None,
+    fixed_thresholds: tuple | None = None,
+    reference_stimuli: frozenset | None = None,
+    eps_weight: float = 0.9,
 ):
     from shared.storage import save_analysis_results
 
@@ -44,10 +49,13 @@ def analyze_checkpoint(
         n_episodes=n_episodes,
         device=device,
         reason=reason,
-        split_mode=split_mode,
+        split_mode="fixed" if fixed_thresholds is not None else split_mode,
         percentile_x=percentile_x,
         seed=seed,
         prev_checkpoint_path=prev_checkpoint_path,
+        fixed_thresholds=fixed_thresholds,
+        reference_stimuli=reference_stimuli,
+        eps_weight=eps_weight,
     )
 
     if algorithm == "ppo":
@@ -90,7 +98,6 @@ def main():
     )
 
 
-# ── PPO analysis ──────────────────────────────────────────────────────────────
 
 def _analyze_ppo(args):
     from ppo.sampling import evaluate_frozen_policy, load_ppo_agent, partition
@@ -106,9 +113,11 @@ def _analyze_ppo(args):
     episodes, eps_scores, episodes_with_transitions = evaluate_frozen_policy(
         args.checkpoint_path, n_episodes=args.n_episodes, device=args.device,
         seed=getattr(args, "seed", None),
+        eps_weight=getattr(args, "eps_weight", 0.9),
     )
     success_eps, failure_eps, threshold = partition(
         episodes, eps_scores, mode=args.split_mode, percentile_x=args.percentile_x,
+        fixed_thresholds=getattr(args, "fixed_thresholds", None),
     )
     _log_threshold(threshold, success_eps, failure_eps)
 
@@ -133,8 +142,17 @@ def _analyze_ppo(args):
 
     # Step 4: RSA — uses all evaluation episodes (not filtered by success/failure)
     policy = model.policy.to(args.device)
-    rsa_results = run_rsa(policy, episodes_with_transitions, layer_name=PPO_HOOK_LAYER, device=args.device)
-    print(f"  RSA: {rsa_results['n_stimuli']} stimuli, alignment={rsa_results['alignment_score']}")
+    rsa_results = run_rsa(
+        policy, episodes_with_transitions, layer_name=PPO_HOOK_LAYER, device=args.device,
+        reference_stimuli=getattr(args, "reference_stimuli", None),
+    )
+    print(
+        f"  RSA: {rsa_results['n_stimuli']} stimuli, "
+        f"fighting={rsa_results['alignment_fighting']}, "
+        f"resource={rsa_results['alignment_resource']}, "
+        f"crafting={rsa_results['alignment_crafting']}, "
+        f"housing={rsa_results['alignment_housing']}"
+    )
 
     return _build_result(
         episode_count, args, threshold,
@@ -144,7 +162,6 @@ def _analyze_ppo(args):
     )
 
 
-# ── Rainbow analysis ──────────────────────────────────────────────────────────
 
 def _compute_joint_is_weights(online_net, target_net, episodes, args_ns, global_step, device):
     """Forward-only pass over a combined episode pool for joint IS normalisation.
@@ -228,9 +245,11 @@ def _analyze_rainbow(args):
     episodes, eps_scores, episodes_with_transitions = evaluate_frozen_policy(
         args.checkpoint_path, n_episodes=args.n_episodes, device=args.device,
         seed=getattr(args, "seed", None),
+        eps_weight=getattr(args, "eps_weight", 0.9),
     )
     success_eps, failure_eps, threshold = partition(
         episodes, eps_scores, mode=args.split_mode, percentile_x=args.percentile_x,
+        fixed_thresholds=getattr(args, "fixed_thresholds", None),
     )
     _log_threshold(threshold, success_eps, failure_eps)
 
@@ -279,6 +298,7 @@ def _analyze_rainbow(args):
     rsa_results = rainbow_run_rsa(
         online_net, episodes_with_transitions,
         layer_name=RAINBOW_HOOK_LAYER, device=args.device,
+        reference_stimuli=getattr(args, "reference_stimuli", None),
     )
     print(
         f"  RSA: {rsa_results['n_stimuli']} stimuli, "
@@ -288,10 +308,30 @@ def _analyze_rainbow(args):
         f"housing={rsa_results['alignment_housing']}"
     )
 
-    # Step 5: Moment of Reward Analysis (uses uniform raw_failure for comparison)
+    # Step 5: Moment of Reward Analysis (uses uniform raw_failure for comparison).
+    # max_episodes=50: gradient magnitudes converge quickly; subsampling 50/250 episodes
+    # gives ~10k neutral transitions — more than enough for a stable estimate, 5x faster.
+    # track_coherence=False: per-episode coherence within sign groups is secondary and
+    # expensive (O(n) allocations + O(n²) cosines); skip for inline longitudinal runs.
+    # Exception: full 1000-episode MoR at the final checkpoint for cross-phase
+    # comparability with Phase C (council condition 4).
+    is_final_ckpt = global_step >= getattr(args_ns, "T_max", int(10e6))
+    mor_max_eps   = None if is_final_ckpt else getattr(args, "mor_max_episodes", 50)
+
     mor_results = run_moment_of_reward_analysis(
         online_net, success_eps, raw_failure_grad=raw_failure, device=args.device,
         target_net=target_net, args_ns=args_ns,
+        max_episodes=mor_max_eps,
+        track_coherence=getattr(args, "mor_track_coherence", False),
+    )
+
+    # Step 5b: Moment of Reward Analysis — failure group (secondary metric).
+    mor_failure_results = run_moment_of_reward_analysis(
+        online_net, failure_eps, raw_failure_grad=raw_success, device=args.device,
+        target_net=target_net, args_ns=args_ns,
+        cross_group_label="success",
+        max_episodes=mor_max_eps,
+        track_coherence=getattr(args, "mor_track_coherence", False),
     )
 
     # Step 6: Weight-delta empirical validation (requires prev checkpoint)
@@ -308,12 +348,12 @@ def _analyze_rainbow(args):
         success_eps, failure_eps,
         raw_success, raw_failure, s_mb, f_mb,
         act_results, rsa_results=rsa_results, mor_results=mor_results,
+        mor_failure_results=mor_failure_results,
         grad_meta_success=grad_s, grad_meta_failure=grad_f,
         delta_metrics=delta_metrics,
     )
 
 
-# ── Shared helpers ────────────────────────────────────────────────────────────
 
 def _log_threshold(threshold, success_eps, failure_eps):
     if isinstance(threshold, tuple):
@@ -333,6 +373,7 @@ def _build_result(
     success_eps, failure_eps,
     raw_success, raw_failure, s_mb, f_mb,
     act_results, rsa_results=None, mor_results=None,
+    mor_failure_results=None,
     grad_meta_success=None, grad_meta_failure=None,
     delta_metrics=None,
 ):
@@ -341,7 +382,6 @@ def _build_result(
         activation_separation, centroid_cosine_distance,
     )
 
-    # ── IS-weighted metrics (Rainbow only, None for PPO / fallback) ───────────
     def _safe_raw(meta, variant):
         if meta is None:
             return None
@@ -369,7 +409,6 @@ def _build_result(
         "threshold_upper": threshold[1] if isinstance(threshold, tuple) else None,
         "n_success": len(success_eps),
         "n_failure": len(failure_eps),
-        # ── Uniform-weighted metrics (cross-algorithm comparable) ─────────────
         "opposition_score": (
             opposition_score(raw_success, raw_failure)
             if len(failure_eps) >= MIN_FAILURE_FOR_OPPOSITION else None
@@ -387,7 +426,6 @@ def _build_result(
         "cluster_stats": act_results["cluster_stats"],
         "gradient_magnitude_success": gradient_magnitude(raw_success),
         "gradient_magnitude_failure": gradient_magnitude(raw_failure),
-        # ── RSA ───────────────────────────────────────────────────────────────
         "rsa_alignment":          None,  # superseded by per-group scores below
         "rsa_alignment_fighting": rsa_results.get("alignment_fighting") if rsa_results else None,
         "rsa_alignment_resource": rsa_results.get("alignment_resource") if rsa_results else None,
@@ -397,9 +435,8 @@ def _build_result(
         "rsa_labels":    rsa_results["labels"]    if rsa_results else [],
         "rsa_rdm":       rsa_results["rdm"]       if rsa_results else None,
         "rsa_n_frames":  rsa_results["n_frames"]  if rsa_results else {},
-        # ── Moment of Reward (Rainbow only) ───────────────────────────────────
-        "moment_of_reward": mor_results,
-        # ── IS-weighted metrics (Rainbow only) ────────────────────────────────
+        "moment_of_reward":         mor_results,
+        "moment_of_reward_failure": mor_failure_results,
         "opposition_score_is": (
             opposition_score(raw_s_is, raw_f_is)
             if (raw_s_is is not None and raw_f_is is not None
@@ -410,19 +447,15 @@ def _build_result(
         "coherence_failure_is":     coherence(mb_f_is) if mb_f_is else None,
         "gradient_magnitude_success_is": gradient_magnitude(raw_s_is) if raw_s_is is not None else None,
         "gradient_magnitude_failure_is": gradient_magnitude(raw_f_is) if raw_f_is is not None else None,
-        # ── Reward-proxy metrics (Rainbow only) ───────────────────────────────
         "coherence_success_reward": coherence(mb_s_rw) if mb_s_rw else None,
         "coherence_failure_reward": coherence(mb_f_rw) if mb_f_rw else None,
-        # ── Funnel cosines (Rainbow only) ─────────────────────────────────────
         "cos_uniform_is_success":  grad_meta_success["cos_uniform_is"] if grad_meta_success else None,
         "cos_uniform_is_failure":  grad_meta_failure["cos_uniform_is"] if grad_meta_failure else None,
         "cos_is_reward_success":   grad_meta_success["cos_is_reward"]  if grad_meta_success else None,
         "cos_is_reward_failure":   grad_meta_failure["cos_is_reward"]  if grad_meta_failure else None,
-        # ── IS reference info ─────────────────────────────────────────────────
         "beta_used":              grad_meta_success["beta_used"]      if grad_meta_success else None,
         "n_transitions_success":  grad_meta_success["n_transitions"]  if grad_meta_success else None,
         "n_transitions_failure":  grad_meta_failure["n_transitions"]  if grad_meta_failure else None,
-        # ── Weight-delta empirical validation (Rainbow only, None if first checkpoint) ─
         # Use .get() per key: handles both delta_metrics=None (no prev checkpoint) and
         # delta_metrics={"cos_is_success": None, ...} (prev provided but variant unavailable).
         **{k: (delta_metrics or {}).get(v) for k, v in (

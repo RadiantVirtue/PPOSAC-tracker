@@ -1,9 +1,19 @@
 """Representational Similarity Analysis for Rainbow DQN (Crafter).
 
+For Rainbow's (T,3,H,W) float32 observation format. For PPO/SAC raw (H,W,C)
+uint8 observations, use shared/rsa.py instead.
+
 Mirrors shared/rsa.py but adapted for Rainbow's observation format:
   - EpisodeData.observations are (T, 3, H, W) float32 tensors in [0, 1]
   - obs at step_idx are (3, H, W) float32 — no obs_to_tensor conversion needed
   - Activation extraction uses RAINBOW_HOOK_LAYER ("convs"), flatten_output=True → 1024-dim
+
+Frozen stimulus set (reference_stimuli param):
+  Pass a frozenset of stimulus labels derived from the final checkpoint to keep
+  the RDM dimensionality constant across checkpoints and eliminate the
+  stimulus-set-expansion confound (Issue #6). Stimuli in reference_stimuli but
+  not observed at a given checkpoint contribute NaN rows; Spearman ρ is computed
+  on the valid (non-NaN) pairs only.
 
 Same 4-group scheme as shared/rsa.py:
   Fighting:  Zombie, Skeleton, Wood/Stone/Iron Sword
@@ -13,6 +23,8 @@ Same 4-group scheme as shared/rsa.py:
 
 One RDM is built from all observed stimuli; four independent alignment scores computed.
 """
+from __future__ import annotations
+
 import numpy as np
 import torch
 from scipy.stats import spearmanr
@@ -98,21 +110,30 @@ def _mean_activation(online_net, obs_list, layer_name, device):
 
 
 def _build_rdm(centroids, labels):
-    """Cosine dissimilarity RDM: RDM[i,j] = 1 - cos_sim(centroid_i, centroid_j)."""
+    """Cosine dissimilarity RDM: RDM[i,j] = 1 - cos_sim(centroid_i, centroid_j).
+
+    centroids is a dict mapping label → centroid array (or None if unobserved).
+    Entries where either centroid is None are left as NaN so that Spearman ρ
+    computation can exclude them (frozen stimulus set — Issue #6).
+    """
     n = len(labels)
-    rdm = np.zeros((n, n))
+    rdm = np.full((n, n), np.nan)
     for i, li in enumerate(labels):
         for j, lj in enumerate(labels):
-            ci, cj = centroids[li], centroids[lj]
+            ci, cj = centroids.get(li), centroids.get(lj)
+            if ci is None or cj is None:
+                continue  # leave as NaN — stimulus not observed at this checkpoint
             ni, nj = np.linalg.norm(ci), np.linalg.norm(cj)
             if ni < 1e-8 or nj < 1e-8:
                 rdm[i, j] = 1.0
             else:
                 rdm[i, j] = 1.0 - float(np.clip(np.dot(ci, cj) / (ni * nj), -1.0, 1.0))
-    # Symmetrize: if either centroid had near-zero norm the two fill values can
-    # differ (rdm[i,j] vs rdm[j,i]).  Average to guarantee symmetry.
-    rdm = (rdm + rdm.T) / 2.0
-    return rdm
+    # Symmetrize observed pairs; NaN pairs stay NaN.
+    valid = ~np.isnan(rdm)
+    rdm_sym = np.full_like(rdm, np.nan)
+    rdm_sym[valid] = rdm[valid]
+    rdm_sym = np.where(valid & valid.T, (rdm + rdm.T) / 2.0, rdm_sym)
+    return rdm_sym
 
 
 def _alignment_score(rdm, labels, group_set):
@@ -129,13 +150,23 @@ def _alignment_score(rdm, labels, group_set):
     ])
     triu = np.triu_indices(n, k=1)
     rdm_vals, gt_vals = rdm[triu], gt[triu]
+    # Exclude NaN pairs — arise when reference_stimuli is frozen and a stimulus
+    # was not observed at this checkpoint (Issue #6).
+    valid = ~np.isnan(rdm_vals)
+    rdm_vals, gt_vals = rdm_vals[valid], gt_vals[valid]
     if len(rdm_vals) < 2 or np.std(rdm_vals) < 1e-8 or np.std(gt_vals) < 1e-8:
         return None
     corr, _ = spearmanr(rdm_vals, gt_vals)
     return float(corr)
 
 
-def run_rsa(online_net, episodes_with_transitions, layer_name=RAINBOW_HOOK_LAYER, device="cpu"):
+def run_rsa(
+    online_net,
+    episodes_with_transitions,
+    layer_name=RAINBOW_HOOK_LAYER,
+    device="cpu",
+    reference_stimuli: frozenset | None = None,
+):
     """Full RSA pipeline for a Rainbow checkpoint.
 
     Args:
@@ -143,39 +174,65 @@ def run_rsa(online_net, episodes_with_transitions, layer_name=RAINBOW_HOOK_LAYER
         episodes_with_transitions: list of (EpisodeData, {ach: step_idx})
         layer_name:                layer to hook (default: RAINBOW_HOOK_LAYER = "convs")
         device:                    torch device string
+        reference_stimuli:         optional frozenset of stimulus labels (Issue #6).
+            When provided, the RDM is always built over this fixed set so that
+            dimensionality is constant across checkpoints. Stimuli in
+            reference_stimuli but not observed at this checkpoint contribute NaN
+            rows; Spearman ρ is computed on valid (non-NaN) pairs only.
+            Derive from the final checkpoint's observed stimulus set.
 
     Returns dict:
-        rdm                  — n×n list-of-lists (or None if <2 stimuli found)
-        labels               — ordered list of stimulus names included
+        rdm                  — n×n list-of-lists (or None if <2 stimuli with data)
+        labels               — ordered list of stimulus names in the RDM
         alignment_fighting   — Spearman ρ vs Fighting group GT (or None)
         alignment_resource   — Spearman ρ vs Resource group GT (or None)
         alignment_crafting   — Spearman ρ vs Crafting group GT (or None)
         alignment_housing    — Spearman ρ vs Housing group GT (or None)
-        n_stimuli            — number of stimuli with data
+        n_stimuli            — number of stimuli with observed frames (not NaN)
         n_frames             — {stimulus: count of frames collected}
     """
     online_net = online_net.to(device)
     stimulus_obs = _collect_stimulus_frames(episodes_with_transitions)
-    n = len(stimulus_obs)
     n_frames = {k: len(v) for k, v in stimulus_obs.items()}
 
-    if n < 2:
+    # Determine label set for the RDM
+    if reference_stimuli is not None:
+        labels = sorted(reference_stimuli)
+    else:
+        if len(stimulus_obs) < 2:
+            return {
+                "rdm": None,
+                "labels": list(stimulus_obs.keys()),
+                "alignment_fighting": None,
+                "alignment_resource": None,
+                "alignment_crafting": None,
+                "alignment_housing":  None,
+                "n_stimuli": len(stimulus_obs),
+                "n_frames":  n_frames,
+            }
+        labels = sorted(stimulus_obs.keys())
+
+    # Build centroids; None for stimuli not observed at this checkpoint
+    centroids = {}
+    for label in labels:
+        if label in stimulus_obs:
+            centroids[label] = _mean_activation(online_net, stimulus_obs[label], layer_name, device)
+        else:
+            centroids[label] = None  # will produce NaN row in RDM
+
+    n_observed = sum(1 for v in centroids.values() if v is not None)
+    if n_observed < 2:
         return {
             "rdm": None,
-            "labels": list(stimulus_obs.keys()),
+            "labels": labels,
             "alignment_fighting": None,
             "alignment_resource": None,
             "alignment_crafting": None,
             "alignment_housing":  None,
-            "n_stimuli": n,
+            "n_stimuli": n_observed,
             "n_frames":  n_frames,
         }
 
-    centroids = {
-        label: _mean_activation(online_net, obs_list, layer_name, device)
-        for label, obs_list in stimulus_obs.items()
-    }
-    labels = sorted(centroids.keys())
     rdm = _build_rdm(centroids, labels)
 
     return {
@@ -185,6 +242,6 @@ def run_rsa(online_net, episodes_with_transitions, layer_name=RAINBOW_HOOK_LAYER
         "alignment_resource": _alignment_score(rdm, labels, RESOURCE),
         "alignment_crafting": _alignment_score(rdm, labels, CRAFTING),
         "alignment_housing":  _alignment_score(rdm, labels, HOUSING),
-        "n_stimuli":          len(labels),
+        "n_stimuli":          n_observed,
         "n_frames":           n_frames,
     }

@@ -42,7 +42,6 @@ class Args:
     rainbow: Rainbow = field(default_factory=Rainbow)
 
 
-# ── Helpers 
 
 def _find_seed_dirs(root: str) -> list:
     results = []
@@ -111,7 +110,6 @@ def _load_result(checkpoint_path: str, seed_dir: str, algo: str):
     return load_analysis_results(json_path) if os.path.exists(json_path) else None
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     args = tyro.cli(Args)

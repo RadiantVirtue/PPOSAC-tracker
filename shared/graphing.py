@@ -20,23 +20,21 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ── Style ─────────────────────────────────────────────────────────────────────
 
 plt.rcParams.update({
     "figure.dpi": 150,
     "axes.spines.top": False,
     "axes.spines.right": False,
-    "axes.labelsize": 11,
-    "axes.titlesize": 12,
-    "legend.fontsize": 9,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
+    "axes.labelsize": 17,
+    "axes.titlesize": 18,
+    "legend.fontsize": 14,
+    "xtick.labelsize": 14,
+    "ytick.labelsize": 14,
     "axes.grid": True,
     "grid.alpha": 0.3,
     "grid.linestyle": "--",
 })
 
-# ── Constants ─────────────────────────────────────────────────────────────────
 
 ACHIEVEMENT_ORDER = [
     # Tier 1
@@ -55,9 +53,49 @@ ACHIEVEMENT_TIERS: dict[str, int] = {
     for i, a in enumerate(ACHIEVEMENT_ORDER)
 }
 
-TIER_COLORS = {1: "#2ca02c", 2: "#1f77b4", 3: "#ff7f0e", 4: "#d62728"}
+TIER_COLORS = {
+    1: "#aabb00",   # lime/yellow-green  (H≈72°  — gap in data palette)
+    2: "#00b8c8",   # cyan               (H≈185° — distinct from C_TEAL #008080)
+    3: "#bb44bb",   # magenta            (H≈300° — distinct from C_VIOLET #8020c0)
+    4: "#884400",   # dark sienna/brown  (H≈30°  — much darker than C_ORANGE_LIGHT)
+}
 
-# ── Rainbow metric colours ─────────────────────────────────────────────────────
+# Hardcoded achievement clusters — membership is stable across all seeds/runs.
+# Steps are still computed from data; only the grouping is fixed here.
+PPO_CLUSTERS: list[frozenset] = [
+    # C1 — ~step 50,000: simultaneous early-tier unlocks
+    frozenset({"collect_wood", "wake_up", "collect_drink", "place_table", "collect_sapling",
+               "place_plant", "eat_cow", "defeat_zombie", "make_wood_pickaxe",
+               "make_wood_sword", "defeat_skeleton"}),
+    # C2 — ~step 100,000: stone prerequisites
+    frozenset({"collect_stone", "place_stone"}),
+]
+RAINBOW_CLUSTERS: list[frozenset] = [
+    # C1 — ~step 100,000: simultaneous early-tier unlocks
+    frozenset({"collect_wood", "collect_drink", "collect_sapling", "place_plant",
+               "eat_cow", "defeat_zombie", "defeat_skeleton"}),
+    # C2 — ~step 1,250,000: stone-tool branch
+    frozenset({"collect_stone", "make_wood_sword"}),
+]
+
+# 12 visually distinct colors for individual achievement markers.
+# Cycles through in step order; dotted linestyle keeps them readable even if
+# a color matches a data line.
+ACH_COLORS: list[str] = [
+    "#e6194b",  # red
+    "#3cb44b",  # green
+    "#ffe119",  # yellow
+    "#911eb4",  # purple
+    "#f58231",  # orange
+    "#42d4f4",  # cyan
+    "#f032e6",  # magenta
+    "#bfef45",  # lime
+    "#469990",  # teal
+    "#9a6324",  # brown
+    "#aaffc3",  # mint
+    "#dcbeff",  # lavender
+]
+
 # Red     → opposition score
 # Orange  → coherence  (light = success, dark = failure)
 # Yellow  → gradient magnitude  (light = success, dark = failure)
@@ -72,6 +110,31 @@ C_YELLOW_DARK  = "#806000"   # gradient magnitude failure
 C_INDIGO       = "#3a3acc"   # activation separation
 C_VIOLET       = "#8020c0"   # activation cosine distance
 C_TEAL         = "#008080"   # RSA alignment / other axes
+C_COHFAIL      = "#1a6fa0"   # coherence failure (hue-distinct from C_ORANGE_LIGHT)
+
+# RSA group colours — each maps to an existing metric colour so cross-plot identity is clear
+C_RSA_FIGHTING = "#d62020"   # = C_RED
+C_RSA_RESOURCE = "#008080"   # = C_TEAL
+C_RSA_CRAFTING = "#3a3acc"   # = C_INDIGO
+C_RSA_HOUSING  = "#b060e0"   # lightened from C_VIOLET to pass ΔE76≥25 vs C_RSA_CRAFTING
+
+# Marker shapes for multi-line graphs (applied via markevery=MARKER_EVERY)
+METRIC_MARKERS: dict[str, tuple[str, int]] = {
+    "opposition_score":  ("o", 6),
+    "coherence_success": ("s", 6),
+    "coherence_failure": ("^", 6),
+    "g_uniform":         ("D", 6),
+    "g_is":              ("P", 6),
+    "g_reward":          ("*", 7),
+    "mora_pos":          ("v", 6),
+    "mora_neu":          ("X", 6),
+    "mora_neg":          ("h", 6),
+    "rsa_fighting":      ("o", 6),
+    "rsa_resource":      ("s", 6),
+    "rsa_crafting":      ("^", 6),
+    "rsa_housing":       ("D", 6),
+}
+MARKER_EVERY = 3    # 1 marker per 3 data points; override with --marker_every in run_all.py
 
 # Colours for per-seed lines (tab10 palette)
 _TAB10 = plt.get_cmap("tab10")
@@ -81,7 +144,6 @@ def seed_color(seed_idx: int):
     return _TAB10(seed_idx % 10)
 
 
-# ── Parsing helpers ────────────────────────────────────────────────────────────
 
 def _parse_step(reason: str) -> int | None:
     # Match "step" (case-insensitive) followed by digits, optionally separated by commas
@@ -109,7 +171,6 @@ def _is_milestone(reason: str, filename: str = "") -> bool:
     return "milestone_first_" in filename
 
 
-# ── Data loading ───────────────────────────────────────────────────────────────
 
 def _find_seed_dirs(root: str) -> list[tuple[int, str]]:
     """Return sorted list of (seed_int, path) for seed_N subdirectories."""
@@ -177,7 +238,6 @@ def load_all_data(experiment_root: str, algorithm: str = "ppo") -> dict:
     }
 
 
-# ── Scalar extraction helpers ─────────────────────────────────────────────────
 
 def _get(record: dict, key: str):
     """Get a scalar value from a record; returns None if missing or non-finite."""
@@ -226,7 +286,6 @@ _SCALAR_METRICS = [
 ]
 
 
-# ── Aggregation ────────────────────────────────────────────────────────────────
 
 def aggregate_periodic(periodic: dict[int, list]) -> list[dict]:
     """Return sorted list of per-step aggregated dicts.
@@ -304,7 +363,6 @@ def milestone_steps(
     return result
 
 
-# ── Per-seed series ────────────────────────────────────────────────────────────
 
 def _per_seed_series(
     periodic: dict[int, list],
@@ -322,7 +380,6 @@ def _per_seed_series(
     return out
 
 
-# ── Plot helpers ───────────────────────────────────────────────────────────────
 
 def _make_shaded_line(
     ax,
@@ -334,11 +391,21 @@ def _make_shaded_line(
     alpha: float = 0.2,
     lw: float = 2.0,
     zorder: int = 3,
+    marker: str | None = None,
+    markersize: int = 6,
+    markevery=None,
+    linestyle: str = "-",
 ):
+    _me = MARKER_EVERY if markevery is None else markevery
     xs = np.array(steps, dtype=float)
     ys = np.array([v if v is not None else np.nan for v in means])
     errs = np.array([v if v is not None else 0.0 for v in stds])
-    ax.plot(xs, ys, color=color, label=label, linewidth=lw, zorder=zorder)
+    plot_kwargs: dict = dict(color=color, label=label, linewidth=lw,
+                             zorder=zorder, linestyle=linestyle)
+    if marker and _me != 0:
+        plot_kwargs.update(marker=marker, markersize=markersize,
+                           markevery=_me)
+    ax.plot(xs, ys, **plot_kwargs)
     mask = np.isfinite(ys)
     if mask.any():
         ax.fill_between(
@@ -390,21 +457,22 @@ def _add_all_achievement_markers(
     ax,
     ach_steps: dict[str, float],
     x_range: tuple | None = None,
-) -> tuple[list, list[str]]:
-    """Draw one dotted vertical line per achievement (or cluster) on ax.
+    clusters: list | None = None,
+) -> list:
+    """Draw achievement milestone markers and return proxy legend handles.
 
-    Isolated achievements get their tier colour; achievements within 2% of the
-    x-range of each other are collapsed into a single grey cluster line.
+    Uses hardcoded cluster membership (pass PPO_CLUSTERS or RAINBOW_CLUSTERS)
+    for known simultaneous-unlock groups; dynamically clusters any remaining
+    achievements by step proximity.  The first two groups (by median step) get
+    vivid special colors; all others use their tier color.
 
-    Returns:
-        handles      — list of Line2D legend handles
-        cluster_notes — list of strings like "Cluster 1: ach_a, ach_b"
-                        (empty when there are no clusters)
+    Returns a list of Line2D proxy handles — one per achievement — for use in a
+    separate legend call.  Does NOT add proxy artists to the axes itself.
     """
     import matplotlib.lines as mlines
 
     if not ach_steps:
-        return [], []
+        return []
 
     if x_range is None:
         vals = list(ach_steps.values())
@@ -412,39 +480,61 @@ def _add_all_achievement_markers(
     else:
         x_min, x_max = x_range
 
-    clump_window = max(1, int(0.02 * (x_max - x_min)))
-    groups = _cluster_achievements(
-        {a: int(s) for a, s in ach_steps.items()},
-        clump_window=clump_window,
-    )
+    _CLUSTER_SPECIAL = ["#e63000", "#0066cc"]
 
-    handles: list = []
-    cluster_notes: list[str] = []
-    cluster_idx = 0
+    # --- Build ordered list of groups (each group = list of ach names) ---
+    ordered_groups: list[list[str]] = []
+    assigned: set[str] = set()
 
-    for group in groups:
-        mid_step = float(np.median([ach_steps.get(a, 0) for a, _ in group]))
+    if clusters:
+        for cluster_set in clusters:
+            members = [a for a in cluster_set if a in ach_steps]
+            if members:
+                ordered_groups.append(members)
+                assigned.update(members)
 
-        if len(group) == 1:
-            ach, _ = group[0]
-            tier = ACHIEVEMENT_TIERS.get(ach, 1)
-            c = TIER_COLORS[tier]
-            short_label = ach.replace("_", " ")
+    remaining = {a: int(s) for a, s in ach_steps.items() if a not in assigned}
+    if remaining:
+        clump_window = max(1, int(0.02 * (x_max - x_min)))
+        for dyn_group in _cluster_achievements(remaining, clump_window=clump_window):
+            ordered_groups.append([a for a, _ in dyn_group])
+
+    def _group_median(members: list[str]) -> float:
+        return float(np.median([ach_steps.get(a, 0) for a in members]))
+
+    ordered_groups.sort(key=_group_median)
+
+    # --- Draw lines and collect proxy handles ---
+    proxy_handles: list = []
+    cluster_counter = 0
+    ach_color_idx = 0
+
+    for group_members in ordered_groups:
+        is_cluster = len(group_members) > 1
+        if is_cluster:
+            cluster_counter += 1
+
+        if is_cluster and cluster_counter <= len(_CLUSTER_SPECIAL):
+            color = _CLUSTER_SPECIAL[cluster_counter - 1]
         else:
-            cluster_idx += 1
-            c = "#666666"
-            short_label = f"Cluster {cluster_idx}"
-            names = ",  ".join(a.replace("_", " ") for a, _ in group)
-            cluster_notes.append(f"Cluster {cluster_idx}:  {names}")
+            color = ACH_COLORS[ach_color_idx % len(ACH_COLORS)]
+            ach_color_idx += 1
 
-        ax.axvline(mid_step, color=c, linestyle=":", linewidth=1.0,
+        mid_step = _group_median(group_members)
+        ax.axvline(mid_step, color=color, linestyle=":", linewidth=1.8,
                    alpha=0.75, zorder=1)
-        handles.append(
-            mlines.Line2D([], [], color=c, linestyle=":", linewidth=1.0,
-                          label=short_label)
+
+        if is_cluster:
+            label = f"cluster {cluster_counter}"
+        else:
+            label = group_members[0].replace("make_", "").replace("_", " ")
+
+        proxy_handles.append(
+            mlines.Line2D([], [], color=color, linewidth=1.8,
+                          linestyle=":", alpha=0.85, label=label)
         )
 
-    return handles, cluster_notes
+    return proxy_handles
 
 
 def _ach_steps_from_results(
@@ -528,7 +618,6 @@ def _seed_color_map(seed_ids: list[int]) -> dict[int, tuple]:
     return {s: seed_color(i) for i, s in enumerate(seed_ids)}
 
 
-# ── Generic periodic line-plot factory ────────────────────────────────────────
 
 def _plot_periodic_single(
     agg: list[dict],
@@ -624,7 +713,6 @@ def _plot_periodic_dual(
     _save_fig(fig, out_dir, filename, dpi)
 
 
-# ── Return-log helpers ────────────────────────────────────────────────────────
 
 def _load_return_log(seed_dir: str, algorithm: str = "ppo") -> list[float]:
     """Load per-episode returns from {algorithm}returnlog.txt (one float per line)."""
@@ -684,7 +772,6 @@ def _cluster_achievements(
     return groups
 
 
-# ── Return vs metric dual-axis graphs ─────────────────────────────────────────
 
 _RETURN_VS_METRIC_SPECS = [
     ("opposition_score",            "Opposition Score",         C_RED,          0.0),
@@ -789,14 +876,12 @@ def plot_return_vs_metrics(
             fig, ax1 = plt.subplots(figsize=(13, 5))
             ax2 = ax1.twinx()
 
-            # ── Left axis: smoothed return (step x-axis) ────────────────────
             ax1.plot(step_valid, ret_valid, color="#888888", linewidth=1.2,
                      alpha=0.75, label=f"Return (smoothed, w={_RETURN_SMOOTH})", zorder=2)
             ax1.set_ylabel("Episode Return", color="#555555", fontsize=10)
             ax1.tick_params(axis="y", colors="#555555")
             ax1.spines["left"].set_color("#888888")
 
-            # ── Right axis: metric (step x-axis, smoothed) ──────────────────
             smooth_metric = _smooth(metric_vals, window=_SMOOTH_WINDOW)
             ax2.plot(metric_steps_list, smooth_metric, color=metric_color, linewidth=2.0,
                      label=f"{metric_label} (smoothed, w={_SMOOTH_WINDOW})", zorder=3)
@@ -808,7 +893,6 @@ def plot_return_vs_metrics(
             ax2.spines["right"].set_color(metric_color)
             ax2.spines["left"].set_visible(False)
 
-            # ── Achievement markers ─────────────────────────────────────────
             x_range_seed = (
                 (min(ach_steps_seed.values()), max(ach_steps_seed.values()))
                 if ach_steps_seed else None
@@ -818,7 +902,6 @@ def plot_return_vs_metrics(
                 if ach_steps_seed else ([], [])
             )
 
-            # ── Combined legend (short labels only) ─────────────────────────
             h1, _ = ax1.get_legend_handles_labels()
             h2, _ = ax2.get_legend_handles_labels()
             ax1.legend(handles=h1 + h2 + ach_legend_handles,
@@ -832,7 +915,6 @@ def plot_return_vs_metrics(
                 f"PPO Seed {seed_id} — Return vs {metric_label} Over Training"
             )
 
-            # ── Cluster notes below the plot ────────────────────────────────
             if cluster_notes:
                 note_text = "\n".join(cluster_notes)
                 fig.text(
@@ -866,17 +948,14 @@ def plot_return_vs_metrics_averaged(
     """
     import matplotlib.lines as mlines
 
-    # ── Locate seed directories ────────────────────────────────────────────────
     seed_dirs: dict[int, str] = {}
     for name in sorted(os.listdir(experiment_root)):
         m = re.match(r"seed_(\d+)$", name)
         if m:
             seed_dirs[int(m.group(1))] = os.path.join(experiment_root, name)
 
-    # ── Common step grid (the 61 periodic checkpoints) ────────────────────────
     step_grid = np.array(sorted(periodic.keys()), dtype=float)
 
-    # ── Per-seed episode→step interpolation, resampled onto step_grid ─────────
     return_at_grid: list[np.ndarray] = []
     # (seed_id, [(episode, step), ...]) — also used for mapping file and 5k marks
     all_ep_step_pairs: list[tuple[int, list[tuple[int, int]]]] = []
@@ -927,7 +1006,6 @@ def plot_return_vs_metrics_averaged(
     std_return = np.nanstd(mat, axis=0)
     n_seeds_ret = len(return_at_grid)
 
-    # ── Save episode→step mapping to text file ────────────────────────────────
     avg_out = os.path.join(out_dir, "averaged")
     os.makedirs(avg_out, exist_ok=True)
     mapping_path = os.path.join(avg_out, "episode_step_mapping.txt")
@@ -957,7 +1035,6 @@ def plot_return_vs_metrics_averaged(
                     _f.write(f"  {_ep_t:>10}  {np.mean(_ests):>12.0f}  {len(_ests):>7}\n")
     print(f"  Saved {mapping_path}")
 
-    # ── Every-5k-episode tick positions (mean step across seeds) ──────────────
     # Build average episode→step mapping across seeds
     if all_ep_step_pairs:
         max_ep = max(pairs[-1][0] for _, pairs in all_ep_step_pairs)
@@ -974,7 +1051,6 @@ def plot_return_vs_metrics_averaged(
     else:
         ep5k_marks = []
 
-    # ── Mean achievement steps for markers ────────────────────────────────────
     # Build a lookup: seed_id -> (ep_arr, st_arr) for fast access
     seed_ep_st: dict[int, tuple] = {
         sid: (np.array([p[0] for p in pairs], dtype=float),
@@ -999,7 +1075,6 @@ def plot_return_vs_metrics_averaged(
         clump_window=int((step_grid[-1] - step_grid[0]) * 0.02),  # 2% of total range
     )
 
-    # ── Metric series from agg (step-indexed, already averaged) ───────────────
     agg_steps = np.array([r["step"] for r in agg], dtype=float)
 
     for metric_key, metric_label, metric_color, hline in _RETURN_VS_METRIC_SPECS:
@@ -1013,7 +1088,6 @@ def plot_return_vs_metrics_averaged(
         fig, ax1 = plt.subplots(figsize=(13, 5))
         ax2 = ax1.twinx()
 
-        # ── Left: mean return ± std ────────────────────────────────────────────
         valid = np.isfinite(avg_return)
         ax1.plot(step_grid[valid], avg_return[valid], color="#888888",
                  linewidth=1.4, alpha=0.85, zorder=2,
@@ -1026,7 +1100,6 @@ def plot_return_vs_metrics_averaged(
         ax1.tick_params(axis="y", colors="#555555")
         ax1.spines["left"].set_color("#888888")
 
-        # ── Right: averaged metric (smoothed) ─────────────────────────────────
         smooth_m = _smooth(list(m_vals), window=_SMOOTH_WINDOW)
         valid_m = np.isfinite(smooth_m)
         ax2.plot(agg_steps[valid_m], smooth_m[valid_m], color=metric_color,
@@ -1040,7 +1113,6 @@ def plot_return_vs_metrics_averaged(
         ax2.spines["right"].set_color(metric_color)
         ax2.spines["left"].set_visible(False)
 
-        # ── Achievement markers ────────────────────────────────────────────────
         x_range_mean = (
             (min(ach_steps_mean.values()), max(ach_steps_mean.values()))
             if ach_steps_mean else None
@@ -1050,7 +1122,6 @@ def plot_return_vs_metrics_averaged(
             if ach_steps_mean else ([], [])
         )
 
-        # ── Every-5k-episode x-axis annotations ───────────────────────────────
         ax_top = ax1.twiny()
         ax_top.set_xlim(ax1.get_xlim())
         ax_top.spines["top"].set_visible(False)
@@ -1062,7 +1133,6 @@ def plot_return_vs_metrics_averaged(
             ax_top.set_xticks(tick_steps)
             ax_top.set_xticklabels(tick_labels, rotation=90)
 
-        # ── Legend, labels, title ──────────────────────────────────────────────
         h1, _ = ax1.get_legend_handles_labels()
         h2, _ = ax2.get_legend_handles_labels()
         ax1.legend(handles=h1 + h2 + ach_legend_handles,
@@ -1085,7 +1155,6 @@ def plot_return_vs_metrics_averaged(
         _save_fig(fig, avg_out, f"ppo_averaged_return_vs_{safe}.png", dpi)
 
 
-# ── Per-seed individual graphs ────────────────────────────────────────────────
 
 def _milestone_steps_per_seed(
     periodic: dict[int, list],
@@ -1204,7 +1273,6 @@ def plot_all_per_seed_graphs(
             _save_fig(fig, seed_out, f"ppo_seed{seed_id}_{safe_metric}.png", dpi)
 
 
-# ── Per-seed opposition detail ─────────────────────────────────────────────────
 
 def plot_opposition_per_seed_detail(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
     """One graph per seed: raw + smoothed (window=3) + cross-seed average."""
@@ -1267,7 +1335,6 @@ def plot_opposition_per_seed_detail(agg, periodic, seed_ids, ach_steps, out_dir,
         _save_fig(fig, seed_out, f"ppo_seed{seed_id}_opposition_detail.png", dpi)
 
 
-# ── Periodic line plots ────────────────────────────────────────────────────────
 
 def plot_opposition_score(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
     _plot_periodic_single(
@@ -1551,7 +1618,6 @@ def plot_summary_dashboard(agg, out_dir, dpi):
     _save_fig(fig, out_dir, "ppo_periodic_summary_dashboard.png", dpi)
 
 
-# ── Milestone bar charts ───────────────────────────────────────────────────────
 
 def _plot_milestone_bar(
     mil_agg: dict[str, dict],
@@ -1632,7 +1698,6 @@ def plot_all_milestone_bars(mil_agg, metric_dirs: dict[str, str], dpi):
         _plot_milestone_bar(mil_agg, metric, title, xlabel, subdir, fname, dpi)
 
 
-# ── Snapshot helpers ───────────────────────────────────────────────────────────
 
 def _select_snapshot_steps(periodic: dict[int, list]) -> list[int]:
     """Pick first, middle, and last periodic steps with rsa_n_stimuli >= 2."""
@@ -1649,7 +1714,6 @@ def _select_snapshot_steps(periodic: dict[int, list]) -> list[int]:
     return [valid[0], valid[len(valid) // 2], valid[-1]]
 
 
-# ── RDM heatmaps ──────────────────────────────────────────────────────────────
 
 def _plot_rdm(rdm: list[list[float]], labels: list[str], title: str, out_path: str, dpi: int):
     n = len(labels)
@@ -1713,7 +1777,6 @@ def plot_rdm_snapshots(periodic: dict[int, list], out_dir: str, dpi: int):
             break  # Only one averaged RDM per step
 
 
-# ── Cluster composition charts ─────────────────────────────────────────────────
 
 def plot_cluster_snapshots(periodic: dict[int, list], out_dir: str, dpi: int):
     snap_steps = _select_snapshot_steps(periodic)
@@ -1752,7 +1815,6 @@ def plot_cluster_snapshots(periodic: dict[int, list], out_dir: str, dpi: int):
             _save_fig(fig, out_dir, f"ppo_clusters_seed{seed_id}_step{step:07d}.png", dpi)
 
 
-# ── Survival-event zoomed plots ────────────────────────────────────────────────
 
 # Achievements that relate to combat / survival difficulty
 _SURVIVAL_ACHIEVEMENTS = [
@@ -1807,7 +1869,6 @@ def plot_survival_zoom(
     if milestone_data:
         per_seed_ach = _milestone_steps_per_seed(periodic, milestone_data)
 
-    # ── Build step-indexed return arrays per seed (absolute steps) ─────────────
     seed_dirs: dict[int, str] = {}
     for name in sorted(os.listdir(experiment_root)):
         m = re.match(r"seed_(\d+)$", name)
@@ -1865,7 +1926,6 @@ def plot_survival_zoom(
 
         n_seeds_unlock = len(seeds_with_unlock)
 
-        # ── Return arrays shifted to relative steps ────────────────────────────
         ret_arrs = []
         for seed_id in seeds_with_unlock:
             seed_unlock = per_seed_ach[seed_id][ach]
@@ -1884,7 +1944,6 @@ def plot_survival_zoom(
             fig, ax1 = plt.subplots(figsize=(11, 4.5))
             ax2 = ax1.twinx()
 
-            # ── Left: averaged return (relative steps) ─────────────────────────
             if ret_arrs:
                 ret_mat = np.vstack(ret_arrs)
                 avg_ret = np.nanmean(ret_mat, axis=0)
@@ -1901,7 +1960,6 @@ def plot_survival_zoom(
             ax1.tick_params(axis="y", colors="#555555")
             ax1.spines["left"].set_color("#888888")
 
-            # ── Right: mean metric line only (no per-seed lines) ───────────────
             metric_arrs = []
             for seed_id in seeds_with_unlock:
                 seed_unlock = per_seed_ach[seed_id][ach]
@@ -1939,7 +1997,6 @@ def plot_survival_zoom(
             ax2.tick_params(axis="y", colors=metric_color)
             ax2.spines["right"].set_color(metric_color)
 
-            # ── Unlock vline at x=0 ────────────────────────────────────────────
             ax1.axvline(0, color="gold", linestyle="--",
                         linewidth=1.8, alpha=0.9, zorder=5)
             unlock_handle = mlines.Line2D(
@@ -1947,7 +2004,6 @@ def plot_survival_zoom(
                 label=f"'{ach.replace('_', ' ')}' first unlock  (x=0, {n_seeds_unlock} seeds)",
             )
 
-            # ── Legend ────────────────────────────────────────────────────────
             h1, _ = ax1.get_legend_handles_labels()
             h2, _ = ax2.get_legend_handles_labels()
             ax1.legend(handles=h1 + h2 + [unlock_handle],
@@ -1965,7 +2021,6 @@ def plot_survival_zoom(
             _save_fig(fig, out_dir, f"ppo_zoom_{safe_ach}_{safe_metric}.png", dpi)
 
 
-# ── All-achievement event-aligned zoom plots ──────────────────────────────────
 
 _ALL_ZOOM_METRICS = [
     ("opposition_score",           "Opposition Score",         C_RED),
@@ -2404,7 +2459,6 @@ def generate_achievement_zoom_graphs(
     return out_dir
 
 
-# ── Weight-delta alignment plots (Rainbow only) ────────────────────────────────
 
 def plot_weight_delta_alignment(
     periodic: dict[int, list],
@@ -2483,7 +2537,6 @@ def plot_weight_delta_alignment(
         _save_fig(fig, out_dir, f"rainbow_weight_delta_{group_key}.png", dpi)
 
 
-# ── RQ-specific longitudinal graphs ───────────────────────────────────────────
 #
 # These are generated from the checkpoint_results list that reporting.py already
 # builds (list of (label, result_dict) pairs, sorted by episode count).
@@ -2499,6 +2552,65 @@ _C_REWARD    = "#c0507a"   # pink       — G_reward
 _C_POS_MOR   = "#2ca02c"   # green — positive reward subgroup
 _C_NEU_MOR   = "#1f77b4"   # blue  — neutral reward subgroup
 _C_NEG_MOR   = "#d62728"   # red   — negative reward subgroup
+
+
+def _hex_to_lab(hex_color: str) -> tuple[float, float, float]:
+    """Convert a CSS hex color to CIELAB (D65 illuminant, sRGB primaries)."""
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+
+    def _linearise(c):
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = _linearise(r), _linearise(g), _linearise(b)
+    x = (r * 0.4124564 + g * 0.3575761 + b * 0.1804375) / 0.95047
+    y = (r * 0.2126729 + g * 0.7151522 + b * 0.0721750) / 1.00000
+    z = (r * 0.0193339 + g * 0.1191920 + b * 0.9503041) / 1.08883
+
+    def _f(t):
+        return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+
+    fx, fy, fz = _f(x), _f(y), _f(z)
+    L = 116 * fy - 16
+    a = 500 * (fx - fy)
+    b_ = 200 * (fy - fz)
+    return L, a, b_
+
+
+def check_palette_ciede2000(colors: list[str], label: str, threshold: float = 25.0) -> bool:
+    """Verify all color pairs in a within-graph palette are perceptually distinct.
+
+    Uses DeltaE_76 (Euclidean CIELAB distance) as a fast proxy for CIEDE2000.
+    Prints a warning table for any pair below threshold. Returns True if all pass.
+    """
+    labs = [_hex_to_lab(c) for c in colors]
+    ok = True
+    for i in range(len(colors)):
+        for j in range(i + 1, len(colors)):
+            L1, a1, b1 = labs[i]
+            L2, a2, b2 = labs[j]
+            de = math.sqrt((L2 - L1) ** 2 + (a2 - a1) ** 2 + (b2 - b1) ** 2)
+            if de < threshold:
+                print(
+                    f"  PALETTE WARNING [{label}]: {colors[i]} vs {colors[j]}"
+                    f"  ΔE76={de:.1f} < {threshold} — may be hard to distinguish"
+                )
+                ok = False
+    return ok
+
+
+# Verify within-graph color groups at module load
+check_palette_ciede2000([_C_IS, _C_REWARD],                              "cos_is_reward")
+check_palette_ciede2000([_C_UNIFORM, _C_IS, _C_REWARD],                  "weight_delta")
+check_palette_ciede2000([_C_POS_MOR, _C_NEU_MOR, _C_NEG_MOR],            "mora_grad_mag")
+check_palette_ciede2000([_C_POS_MOR, _C_NEU_MOR],                        "mora_opp_joint")
+check_palette_ciede2000([C_RED, C_ORANGE_LIGHT, C_COHFAIL],              "case_study")
+check_palette_ciede2000([C_RSA_FIGHTING, C_RSA_RESOURCE],                "rsa_fighting_resource")
+check_palette_ciede2000([C_RSA_CRAFTING, C_RSA_HOUSING],                 "rsa_crafting_housing")
+check_palette_ciede2000([C_RSA_FIGHTING, C_RSA_RESOURCE,
+                         C_RSA_CRAFTING, C_RSA_HOUSING],                 "achievement_rsa_group")
+check_palette_ciede2000([_C_UNIFORM, C_RED],                             "rq1_cross_algorithm")
+check_palette_ciede2000([C_ORANGE_LIGHT, C_COHFAIL],                     "ablation5_coherence")
 
 
 def _rq_extract(checkpoint_results, key, nested=None):
@@ -2534,7 +2646,6 @@ def _rq_fmt_millions(ax):
     ax.set_xlabel("Global Training Step")
 
 
-# ── RQ1 ───────────────────────────────────────────────────────────────────────
 
 def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ1: cos(G_uniform, G_IS) and opposition score comparison over training.
@@ -2555,7 +2666,6 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None
     fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
     fig.subplots_adjust(hspace=0.08)
 
-    # ── Top: cos(G_uniform, G_IS) ─────────────────────────────────────────────
     ax_top.plot(s_cos_steps, s_cos_vals, color=_C_SUCCESS, lw=2.0,
                 label="cos(G_uniform, G_IS) — Success")
     ax_top.plot(f_cos_steps, f_cos_vals, color=_C_FAILURE, lw=2.0,
@@ -2570,7 +2680,6 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
 
-    # ── Bottom: opposition scores ──────────────────────────────────────────────
     ax_bot.plot(opp_u_steps, opp_u_vals, color=_C_UNIFORM, lw=2.0,
                 label="G_uniform opposition score")
     ax_bot.plot(opp_i_steps, opp_i_vals, color=_C_IS, lw=2.0,
@@ -2582,7 +2691,6 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
 
-    # ── Achievement markers ────────────────────────────────────────────────────
     all_steps = s_cos_steps + opp_u_steps
     x_range = (min(all_steps), max(all_steps)) if all_steps else None
     ach_handles, cluster_notes = (
@@ -2609,7 +2717,6 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None
     return path
 
 
-# ── RQ2 ───────────────────────────────────────────────────────────────────────
 
 def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ2: cos(G_IS, G_reward) over training — how much does IS align with reward-proximal?"""
@@ -2655,7 +2762,6 @@ def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, ach_steps=None, dp
     return path
 
 
-# ── RQ3 ───────────────────────────────────────────────────────────────────────
 
 def plot_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ3: Scatter of gradient coherence vs RSA alignment (coloured by training step).
@@ -2719,7 +2825,6 @@ def plot_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, ach_steps=None,
     return path
 
 
-# ── RQ4 ───────────────────────────────────────────────────────────────────────
 
 def plot_rq4_mora_budget(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ4: Stacked area chart of weighted gradient budget by reward sign.
@@ -2935,7 +3040,6 @@ def plot_rq4_mora_opposition(checkpoint_results, out_dir, seed, ach_steps=None, 
     return path
 
 
-# ── RQ4 MORA opposition — 3 separate single-line graphs ───────────────────────
 
 _MORA_OPP_SEPARATE = [
     (
@@ -3083,7 +3187,6 @@ def plot_rq4_mora_opposition_separate_avg(
     return paths
 
 
-# ── PPO RQ graphs ─────────────────────────────────────────────────────────────
 #
 # PPO has no G_IS (on-policy, no PER), no MORA, and uses the single-value
 # rsa_alignment field (the 4-group sub-category update hasn't been run yet).
@@ -3152,7 +3255,6 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, ach_steps=Non
     fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
     fig.subplots_adjust(hspace=0.08)
 
-    # ── Top: activation separation ────────────────────────────────────────────
     ax_top.plot(sep_steps, sep_vals, color=C_INDIGO, lw=2.0,
                 label="Activation separation (Euclidean centroid distance)")
     ax_top.set_ylabel("Activation Separation")
@@ -3164,7 +3266,6 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, ach_steps=Non
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
 
-    # ── Bottom: RSA alignment ─────────────────────────────────────────────────
     if rsa_vals:
         ax_bot.plot(rsa_steps, rsa_vals, color=C_TEAL, lw=2.0,
                     label="RSA alignment (Spearman ρ vs functional RDM)")
@@ -3175,7 +3276,6 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, ach_steps=Non
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
 
-    # ── Achievement markers ────────────────────────────────────────────────────
     all_steps = sep_steps + rsa_steps
     x_range = (min(all_steps), max(all_steps)) if all_steps else None
     ach_handles, cluster_notes = (
@@ -3221,7 +3321,6 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, ach_steps=None, dp
     fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
     fig.subplots_adjust(hspace=0.08)
 
-    # ── Top: coherence ────────────────────────────────────────────────────────
     ax_top.plot(s_coh_steps, s_coh_vals, color=_C_SUCCESS, lw=2.0,
                 label="Coherence — Success")
     ax_top.plot(f_coh_steps, f_coh_vals, color=_C_FAILURE, lw=2.0,
@@ -3235,7 +3334,6 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, ach_steps=None, dp
     ax_top.spines["top"].set_visible(False)
     ax_top.spines["right"].set_visible(False)
 
-    # ── Bottom: gradient magnitude ────────────────────────────────────────────
     if s_mag_vals:
         ax_bot.plot(s_mag_steps, s_mag_vals, color=_C_SUCCESS, lw=2.0,
                     label="Grad Mag — Success")
@@ -3248,7 +3346,6 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, ach_steps=None, dp
     ax_bot.spines["top"].set_visible(False)
     ax_bot.spines["right"].set_visible(False)
 
-    # ── Achievement markers ────────────────────────────────────────────────────
     all_steps = s_coh_steps + s_mag_steps
     x_range = (min(all_steps), max(all_steps)) if all_steps else None
     ach_handles, cluster_notes = (
@@ -3369,7 +3466,6 @@ def generate_ppo_rq_graphs(checkpoint_results, seed_root, seed, dpi=150):
     return generated
 
 
-# ── Seed-averaged PPO RQ graphs ───────────────────────────────────────────────
 
 def _avg_metric_across_seeds(all_seed_results, key, step_grid):
     """Interpolate metric `key` from each seed to step_grid.
@@ -3689,7 +3785,6 @@ def generate_ppo_rq_graphs_averaged(all_seed_results, experiment_root, dpi=150):
     return generated
 
 
-# ── Seed-averaged Rainbow RQ graphs ──────────────────────────────────────────
 
 def plot_rq1_gradient_variants_avg(all_seed_results, out_dir, ach_steps=None, dpi=150):
     """RQ1 (Rainbow averaged): cos(G_uniform, G_IS) + opposition score, mean ± std."""
@@ -3867,8 +3962,18 @@ def plot_rq3_coherence_vs_rsa_avg(all_seed_results, out_dir, ach_steps=None, dpi
     return path
 
 
-def _avg_mora_series(all_seed_results, mora_key, step_grid):
-    """Average a MORA sub-field across seeds, interpolated to step_grid."""
+def _avg_mora_series(all_seed_results, mora_key, step_grid,
+                     top_key="moment_of_reward"):
+    """Average a MORA sub-field across seeds, interpolated to step_grid.
+
+    Args:
+        all_seed_results: dict {seed_id: [(label, record), ...]}
+        mora_key:         key within the MoR sub-dict (e.g. "opp_pos_vs_neutral")
+        step_grid:        1-D array of training steps to interpolate onto
+        top_key:          top-level JSON key for the MoR sub-dict.
+                          Default "moment_of_reward" (success-group analysis).
+                          Pass "moment_of_reward_failure" for failure-group data.
+    """
     arrs = []
     for checkpoint_results in all_seed_results.values():
         pairs = []
@@ -3876,7 +3981,7 @@ def _avg_mora_series(all_seed_results, mora_key, step_grid):
             step = _parse_step(label)
             if step is None:
                 continue
-            mor = r.get("moment_of_reward")
+            mor = r.get(top_key)
             if not isinstance(mor, dict):
                 continue
             v = mor.get(mora_key)
@@ -4131,7 +4236,6 @@ def generate_rq_graphs_averaged(all_seed_results, experiment_root, dpi=150):
     return generated
 
 
-# ── Master RQ graph generator ─────────────────────────────────────────────────
 
 def generate_rq_graphs(checkpoint_results, seed_root, seed, dpi=150):
     """Generate all RQ-specific graphs from checkpoint_results.
@@ -4187,7 +4291,12 @@ def generate_rq_graphs(checkpoint_results, seed_root, seed, dpi=150):
     return generated
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+def _add_seed_note(fig, n: int) -> None:
+    """Add a seed-count note at the top-right corner of the figure."""
+    fig.text(0.98, 0.98, f"N = {n} seeds",
+             ha="right", va="top", fontsize=10, color="#777777")
+
+
 
 def main():
     import matplotlib.ticker
@@ -4228,7 +4337,6 @@ def main():
 
     print(f"  Achievement markers: {len(ach_steps)}")
 
-    # ── Subdirectory layout grouped by metric ─────────────────────────────────
     # graphs/
     #   gradient_signal/   opposition_score, coherence, gradient_magnitude
     #   activation_space/  activation separation, cosine distance, combined

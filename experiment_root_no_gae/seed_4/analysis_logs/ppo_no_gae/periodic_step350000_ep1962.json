@@ -1,0 +1,13 @@
+{
+  "episode": 1962,
+  "algorithm": "ppo_no_gae",
+  "split_mode": "percentile",
+  "percentile_x": 25,
+  "n_success": 125,
+  "n_failure": 125,
+  "opposition_score": 0.009178071282804012,
+  "coherence_success": 0.12321872914379293,
+  "coherence_failure": 0.11167780260809443,
+  "gradient_magnitude_success": 0.2868495285511017,
+  "gradient_magnitude_failure": 0.33863890171051025
+}

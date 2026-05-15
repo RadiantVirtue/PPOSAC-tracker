@@ -24,7 +24,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ── Path to PPOSAC-tracker root ────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(os.path.dirname(_HERE))
 sys.path.insert(0, _ROOT)
@@ -34,14 +33,17 @@ from shared.graphing import (
     _build_step_grid,
     _make_shaded_line,
     _rq_fmt_millions,
+    _add_seed_note,
     C_RED,
     _C_UNIFORM,
+    METRIC_MARKERS,
 )
 from shared.reporting import label_from_path
 from shared.storage import load_analysis_results
 
+_GRAPHS_ROOT = os.path.join(_ROOT, "GRAPHS", "Dissertation graphs")
 
-# ── Data loading ───────────────────────────────────────────────────────────────
+
 
 def _load_checkpoint_results(seed_dir: str, algorithm: str) -> list:
     log_dir = os.path.join(seed_dir, "analysis_logs", algorithm)
@@ -76,9 +78,8 @@ def _load_all_seed_results(experiment_root: str, algorithm: str) -> dict:
     return out
 
 
-# ── Plot ───────────────────────────────────────────────────────────────────────
 
-def plot(ppo_root: str, rainbow_root: str, out_dir: str, dpi: int = 150):
+def plot(ppo_root: str, rainbow_root: str, _out_dir_ignored: str = "", dpi: int = 150):
     ppo_results = _load_all_seed_results(ppo_root, "ppo")
     rbw_results = _load_all_seed_results(rainbow_root, "rainbow")
 
@@ -99,35 +100,37 @@ def plot(ppo_root: str, rainbow_root: str, out_dir: str, dpi: int = 150):
     rbw_mean, rbw_std, rbw_n = _avg_metric_across_seeds(
         rbw_results, "opposition_score", step_grid)
 
+    mk_ppo, ms_ppo = METRIC_MARKERS["g_uniform"]        # diamond — PPO
+    mk_rbw, ms_rbw = METRIC_MARKERS["opposition_score"]  # circle  — Rainbow
+
     fig, ax = plt.subplots(figsize=(11, 4.5))
 
     _make_shaded_line(ax, step_grid, ppo_mean, ppo_std,
-                      color=_C_UNIFORM, label=f"PPO  (n={ppo_n} seeds)")
+                      color=_C_UNIFORM, label="PPO",
+                      marker=mk_ppo, markersize=ms_ppo)
     _make_shaded_line(ax, step_grid, rbw_mean, rbw_std,
-                      color=C_RED, label=f"Rainbow  (n={rbw_n} seeds)")
+                      color=C_RED, label="Rainbow",
+                      marker=mk_rbw, markersize=ms_rbw)
 
     ax.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.5)
     ax.axhline(1.0, color="grey", linestyle=":", lw=0.8, alpha=0.3)
     ax.set_ylabel("Opposition Score  (cosine similarity)")
-    ax.set_title(
-        "RQ1: PPO vs Rainbow — Opposition Score Over Training\n"
-        "Mean +/- 1 std across 5 seeds each"
-    )
     _rq_fmt_millions(ax)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=14, loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=2)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
+    _add_seed_note(fig, ppo_n)
+    out_dir = os.path.join(_GRAPHS_ROOT, "7.2.1")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "rq1_cross_algorithm_opposition.png")
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    path = os.path.join(out_dir, "rq1_cross_algorithm_opposition.pdf")
+    fig.savefig(path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
     print(f"  Saved {path}")
     return path
 
 
-# ── CLI ────────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

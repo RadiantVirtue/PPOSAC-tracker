@@ -70,9 +70,18 @@ class CrafterAchievementWrapper(gym.Wrapper):
     Crafter already returns cumulative per-episode achievement counts in info.
     This wrapper:
       - Converts counts → bool dict (achieved at least once this episode)
-      - Injects info["eps"] = count_achievements(ach)
+      - Injects info["eps"] = achievements_completed + eps_weight * materials_progress
     Reward is passed through unchanged (no shaping).
+
+    Args:
+        env:        the wrapped CrafterGymnasiumWrapper
+        eps_weight: coefficient for the materials_progress term in EPS (default 0.9).
+            Use values ∈ {0.5, 0.9, 1.2} for sensitivity analysis (Issue #9).
     """
+
+    def __init__(self, env, eps_weight: float = 0.9):
+        super().__init__(env)
+        self._eps_weight = eps_weight
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -89,11 +98,22 @@ class CrafterAchievementWrapper(gym.Wrapper):
         info["achievements"] = cur_ach
         inventory = info.get("inventory", {})
         materials_frac = compute_materials_fraction(cur_ach, inventory)
-        info["eps"] = float(compute_eps(count_achievements(cur_ach), materials_frac))
+        info["eps"] = float(
+            compute_eps(count_achievements(cur_ach), materials_frac, weight=self._eps_weight)
+        )
 
         return obs, reward, terminated, truncated, info
 
 
-def make_crafter_env(seed=None, **crafter_kwargs) -> gym.Env:
-    """Factory for a fully-wrapped Crafter gymnasium environment."""
-    return CrafterAchievementWrapper(CrafterGymnasiumWrapper(seed=seed, **crafter_kwargs))
+def make_crafter_env(seed=None, eps_weight: float = 0.9, **crafter_kwargs) -> gym.Env:
+    """Factory for a fully-wrapped Crafter gymnasium environment.
+
+    Args:
+        seed:       RNG seed for environment randomness.
+        eps_weight: coefficient for materials_progress in EPS score (default 0.9).
+            Pass values ∈ {0.5, 0.9, 1.2} for sensitivity analysis (Issue #9).
+    """
+    return CrafterAchievementWrapper(
+        CrafterGymnasiumWrapper(seed=seed, **crafter_kwargs),
+        eps_weight=eps_weight,
+    )

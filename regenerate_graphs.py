@@ -123,11 +123,9 @@ def main():
     print(f"Root      : {experiment_root}")
     print(f"DPI       : {args.dpi}")
 
-    # ── Step 1: aggregate periodic/milestone graphs ───────────────────────────
     if not args.skip_aggregate:
         _run_aggregate_graphs(experiment_root, args.algorithm, args.dpi)
 
-    # ── Step 2: load per-seed data ────────────────────────────────────────────
     all_seeds = _discover_seeds(experiment_root, args.algorithm)
     if not all_seeds:
         print(f"\nERROR: no seed_* directories with analysis_logs/{args.algorithm}/ found.")
@@ -153,7 +151,6 @@ def main():
         all_seed_results[seed] = checkpoint_results
         print(f"  Seed {seed}: {len(checkpoint_results)} records loaded")
 
-        # ── Step 3: per-seed RQ graphs ────────────────────────────────────────
         print(f"  Seed {seed}: generating per-seed RQ graphs ...")
         if args.algorithm == "rainbow":
             rq_graphs = generate_rq_graphs(checkpoint_results, seed_dir, seed, dpi=args.dpi)
@@ -161,7 +158,6 @@ def main():
             rq_graphs = generate_ppo_rq_graphs(checkpoint_results, seed_dir, seed, dpi=args.dpi)
         print(f"  Seed {seed}: {len(rq_graphs)} RQ graphs written")
 
-    # ── Step 4: averaged RQ graphs ────────────────────────────────────────────
     if len(all_seed_results) >= 1:
         print(f"\n[3] Generating averaged RQ graphs across seeds {list(all_seed_results)} ...")
         if args.algorithm == "rainbow":

@@ -104,9 +104,18 @@ def get_achievements_for_env(env_id: str) -> list:
     return CRAFTER_ACHIEVEMENTS
 
 
-def compute_eps(achievements_completed: float, materials_progress: float) -> float:
-    """EPS = achievements unlocked + 0.9 * materials_progress."""
-    return achievements_completed + 0.9 * materials_progress
+def compute_eps(
+    achievements_completed: float,
+    materials_progress: float,
+    weight: float = 0.9,
+) -> float:
+    """EPS = achievements unlocked + weight * materials_progress.
+
+    Default weight=0.9 matches the original formulation.  Use weight ∈ {0.5, 0.9, 1.2}
+    for sensitivity analysis (Issue #9) to verify that findings are stable across
+    EPS formulations — i.e. the materials_progress coefficient is not a confound.
+    """
+    return achievements_completed + weight * materials_progress
 
 
 def count_achievements(achievements_dict: dict) -> int:

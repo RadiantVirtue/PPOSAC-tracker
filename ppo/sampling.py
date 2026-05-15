@@ -39,13 +39,17 @@ def load_ppo_agent(checkpoint_path: str, device: str = "cpu"):
 
 def evaluate_frozen_policy(
     checkpoint_path: str, n_episodes: int = 1000, device: str = "cpu", seed: int = None,
-    num_envs: int = 16,
+    num_envs: int = 16, eps_weight: float = 0.9,
 ):
     """Run n_episodes with a frozen SB3 PPO policy on Crafter using parallel envs.
 
     Observations stored in EpisodeData are (H, W, C) uint8 numpy arrays as a
     stacked tensor of shape (T, H, W, C), compatible with ppo/gradients.py and
     ppo/activations.py (which normalise internally via policy.obs_to_tensor).
+
+    Args:
+        eps_weight: coefficient for materials_progress in EPS score (default 0.9).
+            Use values ∈ {0.5, 0.9, 1.2} for sensitivity analysis (Issue #9).
 
     Returns:
         episodes:                list of EpisodeData namedtuples
@@ -61,7 +65,7 @@ def evaluate_frozen_policy(
 
     base_seed = seed if seed is not None else 0
     vec_env = gym.vector.AsyncVectorEnv([
-        (lambda i: lambda: make_crafter_env(seed=base_seed + i * 10_000))(i)
+        (lambda i: lambda: make_crafter_env(seed=base_seed + i * 10_000, eps_weight=eps_weight))(i)
         for i in range(num_envs)
     ])
 

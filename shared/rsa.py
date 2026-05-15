@@ -1,23 +1,14 @@
-"""Representational Similarity Analysis for Crafter (pixel observations).
+"""Representational Similarity Analysis for Crafter.
 
-Stimulus set: all 22 Crafter achievements, mapped to human-readable labels.
+Uses the first frame at which each achievement is unlocked as the stimulus for that
+achievement. Builds a cosine-dissimilarity RDM over mean activations, then computes
+Spearman ρ alignment to four functional groups (Fighting, Resource, Crafting, Housing).
 
-Stimulus detection: the frame at which an achievement is FIRST unlocked within
-an episode is used as the representative observation for that stimulus.
-This uses only info returned by env.step() at the moment it happens — no data leak.
-Episodes where an achievement was never unlocked contribute no frames for that stimulus.
-Only stimuli with at least one collected frame are included in the RDM.
-
-Grouping scheme (4 groups — items may belong to multiple groups):
-  Fighting:  Zombie, Skeleton, Wood/Stone/Iron Sword
-  Resource:  Wood, Stone, Iron, Coal, Wood/Stone/Iron Pickaxe
-  Crafting:  Wood/Stone/Iron Pickaxe, Wood/Stone/Iron Sword, Furnace
-  Housing:   Furnace, Table, Place Stone, Wake Up
-
-One RDM is built from all observed stimuli. Four independent Spearman ρ alignment
-scores are computed (one per group), so overlapping items contribute to all relevant
-scores. Ungrouped stimuli are included in the RDM but always count as cross-group.
+reference_stimuli: pass a frozenset from the final checkpoint to hold RDM dimensionality
+constant across checkpoints; unobserved stimuli contribute NaN rows.
 """
+from __future__ import annotations
+
 import numpy as np
 import torch
 from scipy.stats import spearmanr
@@ -96,12 +87,19 @@ def _mean_activation(policy, obs_list, layer_name, device):
 
 
 def _build_rdm(centroids, labels):
-    """Cosine dissimilarity RDM: RDM[i,j] = 1 - cos_sim(centroid_i, centroid_j)."""
+    """Cosine dissimilarity RDM: RDM[i,j] = 1 - cos_sim(centroid_i, centroid_j).
+
+    centroids is a dict mapping label → centroid array (or None if unobserved).
+    Entries where either centroid is None are left as NaN so that Spearman ρ
+    computation can exclude them (frozen stimulus set — Issue #6).
+    """
     n = len(labels)
-    rdm = np.zeros((n, n))
+    rdm = np.full((n, n), np.nan)
     for i, li in enumerate(labels):
         for j, lj in enumerate(labels):
-            ci, cj = centroids[li], centroids[lj]
+            ci, cj = centroids.get(li), centroids.get(lj)
+            if ci is None or cj is None:
+                continue  # leave as NaN — stimulus not observed at this checkpoint
             ni, nj = np.linalg.norm(ci), np.linalg.norm(cj)
             if ni < 1e-8 or nj < 1e-8:
                 rdm[i, j] = 1.0
@@ -126,52 +124,65 @@ def _alignment_score(rdm, labels, group_set):
     ])
     triu = np.triu_indices(n, k=1)
     rdm_vals, gt_vals = rdm[triu], gt[triu]
+    # Exclude NaN pairs — arise when reference_stimuli is frozen and a stimulus
+    # was not observed at this checkpoint (Issue #6).
+    valid = ~np.isnan(rdm_vals)
+    rdm_vals, gt_vals = rdm_vals[valid], gt_vals[valid]
     if len(rdm_vals) < 2 or np.std(rdm_vals) < 1e-8 or np.std(gt_vals) < 1e-8:
         return None
     corr, _ = spearmanr(rdm_vals, gt_vals)
     return float(corr)
 
 
-def run_rsa(policy, episodes_with_transitions, layer_name, device="cpu"):
-    """Full RSA pipeline for PPO.
-
-    Args:
-        policy:                    model.policy (SB3) — used for obs_to_tensor + hook
-        episodes_with_transitions: list of (EpisodeData, {ach: step_idx})
-        layer_name:                layer to hook for activation extraction
-        device:                    torch device string
-
-    Returns dict:
-        rdm                  — n×n list-of-lists (or None if <2 stimuli found)
-        labels               — ordered list of stimulus names included
-        alignment_fighting   — Spearman ρ vs Fighting group GT (or None)
-        alignment_resource   — Spearman ρ vs Resource group GT (or None)
-        alignment_crafting   — Spearman ρ vs Crafting group GT (or None)
-        alignment_housing    — Spearman ρ vs Housing group GT (or None)
-        n_stimuli            — number of stimuli with data
-        n_frames             — {stimulus: count of frames collected}
-    """
+def run_rsa(
+    policy,
+    episodes_with_transitions,
+    layer_name,
+    device="cpu",
+    reference_stimuli: frozenset | None = None,
+):
+    """Run the full RSA pipeline. Returns rdm, labels, four alignment scores, n_stimuli, n_frames."""
     stimulus_obs = _collect_stimulus_frames(episodes_with_transitions)
-    n = len(stimulus_obs)
     n_frames = {k: len(v) for k, v in stimulus_obs.items()}
 
-    if n < 2:
+    # Determine the label set for the RDM
+    if reference_stimuli is not None:
+        labels = sorted(reference_stimuli)
+    else:
+        if len(stimulus_obs) < 2:
+            return {
+                "rdm": None,
+                "labels": list(stimulus_obs.keys()),
+                "alignment_fighting": None,
+                "alignment_resource": None,
+                "alignment_crafting": None,
+                "alignment_housing":  None,
+                "n_stimuli": len(stimulus_obs),
+                "n_frames":  n_frames,
+            }
+        labels = sorted(stimulus_obs.keys())
+
+    # Build centroids; None for stimuli not observed at this checkpoint
+    centroids = {}
+    for label in labels:
+        if label in stimulus_obs:
+            centroids[label] = _mean_activation(policy, stimulus_obs[label], layer_name, device)
+        else:
+            centroids[label] = None  # will produce NaN row in RDM
+
+    n_observed = sum(1 for v in centroids.values() if v is not None)
+    if n_observed < 2:
         return {
             "rdm": None,
-            "labels": list(stimulus_obs.keys()),
+            "labels": labels,
             "alignment_fighting": None,
             "alignment_resource": None,
             "alignment_crafting": None,
             "alignment_housing":  None,
-            "n_stimuli": n,
+            "n_stimuli": n_observed,
             "n_frames":  n_frames,
         }
 
-    centroids = {
-        label: _mean_activation(policy, obs_list, layer_name, device)
-        for label, obs_list in stimulus_obs.items()
-    }
-    labels = sorted(centroids.keys())
     rdm = _build_rdm(centroids, labels)
 
     return {
@@ -181,6 +192,6 @@ def run_rsa(policy, episodes_with_transitions, layer_name, device="cpu"):
         "alignment_resource": _alignment_score(rdm, labels, RESOURCE),
         "alignment_crafting": _alignment_score(rdm, labels, CRAFTING),
         "alignment_housing":  _alignment_score(rdm, labels, HOUSING),
-        "n_stimuli":          len(labels),
+        "n_stimuli":          n_observed,
         "n_frames":           n_frames,
     }

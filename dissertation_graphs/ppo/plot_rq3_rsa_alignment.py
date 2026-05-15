@@ -33,25 +33,26 @@ import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ── Path to PPOSAC-tracker root ────────────────────────────────────────────────
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.dirname(os.path.dirname(_HERE))
 sys.path.insert(0, _ROOT)
 
 from shared.graphing import (
     _ach_steps_from_all_results,
+    _add_all_achievement_markers,
     _build_step_grid,
     _make_shaded_line,
     _rq_fmt_millions,
-    ACHIEVEMENT_TIERS,
-    TIER_COLORS,
+    _add_seed_note,
     C_TEAL,
+    PPO_CLUSTERS,
 )
 from shared.reporting import label_from_path
 from shared.storage import load_analysis_results
 
+_GRAPHS_ROOT = os.path.join(_ROOT, "GRAPHS", "Dissertation graphs")
 
-# ── Data loading ───────────────────────────────────────────────────────────────
+
 
 def _load_checkpoint_results(seed_dir: str, algorithm: str) -> list:
     log_dir = os.path.join(seed_dir, "analysis_logs", algorithm)
@@ -86,7 +87,6 @@ def _load_all_seed_results(experiment_root: str, algorithm: str) -> dict:
     return out
 
 
-# ── RSA extractor ──────────────────────────────────────────────────────────────
 
 def _extract_rsa_for_seed(checkpoint_results: list) -> tuple[list, list]:
     """Return (steps, rsa_values) for periodic checkpoints.
@@ -153,9 +153,9 @@ def _avg_rsa_across_seeds(
     return np.nanmean(mat, axis=0), np.nanstd(mat, axis=0), len(arrs)
 
 
-# ── Plot ───────────────────────────────────────────────────────────────────────
 
-def plot(ppo_root: str, out_dir: str, dpi: int = 150):
+
+def plot(ppo_root: str, _out_dir_ignored: str = "", dpi: int = 150):
     results = _load_all_seed_results(ppo_root, "ppo")
     if not results:
         print("ERROR: no PPO seed data found.")
@@ -172,59 +172,46 @@ def plot(ppo_root: str, out_dir: str, dpi: int = 150):
     fig, ax = plt.subplots(figsize=(11, 4.5))
 
     _make_shaded_line(ax, step_grid, mean, std,
-                      color=C_TEAL, label=f"RSA alignment rho  (n={n} seeds)")
+                      color=C_TEAL, label="RSA alignment rho")
 
     ax.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.5,
                label="rho = 0  (random alignment)")
 
-    # ── Tier-3 achievement markers ──────────────────────────────────────────────
     ach_steps = _ach_steps_from_all_results(results)
-    tier3_steps = {a: s for a, s in ach_steps.items()
-                   if ACHIEVEMENT_TIERS.get(a) == 3}
+    ach_handles = _add_all_achievement_markers(ax, ach_steps, clusters=PPO_CLUSTERS)
 
-    t3_color = TIER_COLORS[3]   # "#ff7f0e" orange
-    tier3_handles = []
-    for ach, step in sorted(tier3_steps.items(), key=lambda x: x[1]):
-        ax.axvline(step, color=t3_color, linestyle=":", lw=1.1, alpha=0.75)
-        short = ach.replace("_", " ")
-        tier3_handles.append(
-            mlines.Line2D([], [], color=t3_color, linestyle=":", lw=1.1,
-                          label=f"T3: {short}")
-        )
-
-    ax.set_ylabel("RSA Alignment  (Spearman \u03c1)")
-    ax.set_title(
-        f"PPO Averaged ({n} seeds) — RQ3: RSA Alignment Over Training\n"
-        "Negative early, crosses zero ~1.0-1.3M steps as Tier-3 achievements emerge"
-    )
+    ax.set_ylabel("RSA Alignment  (Spearman ρ)")
     _rq_fmt_millions(ax)
-    h, _ = ax.get_legend_handles_labels()
-    ax.legend(handles=h + tier3_handles, fontsize=8, ncol=2)
+    data_h, _ = ax.get_legend_handles_labels()
+    leg1 = ax.legend(handles=data_h, fontsize=14, loc="upper center",
+                     bbox_to_anchor=(0.5, -0.18), ncol=2)
+    if ach_handles:
+        ax.add_artist(leg1)
+        ax.legend(handles=ach_handles, fontsize=14, loc="upper center",
+                  bbox_to_anchor=(0.5, -0.30), ncol=4)
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
+    _add_seed_note(fig, n)
+    out_dir = os.path.join(_GRAPHS_ROOT, "7.5.2")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "rq3_rsa_alignment_ppo_averaged.png")
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    path = os.path.join(out_dir, "rsa_alignment_ppo.pdf")
+    fig.savefig(path, bbox_inches="tight", pad_inches=0.1)
     plt.close(fig)
     print(f"  Saved {path}")
     return path
 
 
-# ── CLI ────────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ppo_root", required=True,
-                        help="Path to PPO experiment root")
-    parser.add_argument("--out_dir", default=os.path.join(_HERE, "output"),
-                        help="Directory to save the PNG (default: ppo/output/)")
+    parser.add_argument("--ppo_root", required=True)
     parser.add_argument("--dpi", type=int, default=150)
     args = parser.parse_args()
-
-    ppo_root = os.path.join(_ROOT, args.ppo_root) if not os.path.isabs(args.ppo_root) else args.ppo_root
-    plot(ppo_root, args.out_dir, args.dpi)
+    ppo_root = (os.path.join(_ROOT, args.ppo_root)
+                if not os.path.isabs(args.ppo_root) else args.ppo_root)
+    plot(ppo_root, dpi=args.dpi)
 
 
 if __name__ == "__main__":

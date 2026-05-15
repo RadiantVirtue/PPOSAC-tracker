@@ -1,28 +1,7 @@
-"""Rainbow gradient analysis (Crafter).
+"""Rainbow gradient analysis: G_uniform, G_IS (PER-corrected), G_reward variants.
 
-Computes three variants of the offline distributional Bellman loss gradient:
-
-    G_uniform  — unweighted mean (baseline, matches v3)
-    G_IS       — IS-weighted mean (principled PER correction, primary estimate)
-    G_reward   — reward-magnitude-weighted mean (cheap verification proxy)
-
-IS weights are derived analytically from the frozen network's per-transition
-distributional Bellman loss at checkpoint time, using the same formula as
-Rainbow's training loop (see rainbow/agent.py::learn()).  Normalization is
-over all group transitions (success or failure), matching PER's buffer-level
-normalization in structure.
-
-Two-pass design:
-  Pass 1 — torch.no_grad() forward: collect per-transition losses for global
-            IS weight normalization.
-  Pass 2 — three .backward() calls per episode (retain_graph=True on first
-            two) to accumulate uniform, IS-weighted, and reward-weighted
-            gradients independently.
-
-All three loss variants use .mean() (divide by T) for scale consistency so
-that gradient_magnitude metrics are directly comparable across variants.
-
-Reference: Gradient Analysis v4.md, Section 4.
+Two-pass design: Pass 1 collects per-transition losses for IS weight normalization;
+Pass 2 runs three backward() calls per episode to accumulate each gradient variant.
 """
 import torch
 from tqdm import tqdm
@@ -149,7 +128,8 @@ def _forward_per_loss(episode, online_net, target_net,
     T       = len(obs)
 
     next_obs = torch.zeros_like(obs)
-    next_obs[:-1] = obs[1:]  # next_obs[t] = obs[t+1]; terminal row stays zero
+    if n < T:
+        next_obs[:-n] = obs[n:]  # next_obs[t] = obs[t+n]; last n rows stay zero (no bootstrap)
 
     R, nonterminal = _compute_nstep_returns(episode.rewards, episode.dones, gamma, n)
 
@@ -209,40 +189,12 @@ def compute_group_gradient_with_coherence(
     target_net=None, args_ns=None, global_step: int = 0,
     precomputed_is_weights=None,
 ):
-    """Compute Rainbow distributional Bellman gradients over a group of episodes.
+    """Compute G_uniform, G_IS, and G_reward over a group of episodes.
 
-    Returns three gradient variants (uniform, IS-weighted, reward-weighted) plus
-    cross-variant cosine similarities for the funnel verification.
-
-    Args:
-        online_net:   DQN online network (frozen weights for analysis).
-        episodes:     list of EpisodeData with .observations (T,3,H,W) float32,
-                      .actions (T,) long, .rewards (T,) float32, .dones (T,) float32.
-        batch_size:   episodes per coherence mini-batch.
-        device:       torch device string.
-        desc:         tqdm label.
-        target_net:   DQN target network (frozen). Required for full distributional loss.
-                      Falls back to log-prob proxy if None (IS/reward variants disabled).
-        args_ns:      argparse.Namespace with atoms, V_min, V_max, multi_step, discount,
-                      priority_exponent, priority_weight, T_max, learn_start.
-        global_step:  training step at checkpoint time (for beta annealing).
-        precomputed_is_weights: optional list of (T,) tensors (one per episode) containing
-                      IS weights pre-computed over a combined pool (e.g. success + failure
-                      jointly). When provided, Pass 1 is skipped and these weights are used
-                      directly. This enables cross-group magnitude comparison by giving both
-                      groups a common IS normalisation denominator.
-
-    Returns:
-        dict with keys:
-            "uniform"        → {"raw": mean_gradient_dict, "batch_grads": list_of_dicts}
-            "is_weighted"    → {"raw": ..., "batch_grads": ...}  (None/[] in fallback)
-            "reward_weighted"→ {"raw": ..., "batch_grads": ...}  (None/[] in fallback)
-            "cos_uniform_is" → float or None
-            "cos_is_reward"  → float or None  (diagnostic: whether PER priorities correlate
-                               with reward magnitude — a finding metric, not a verification
-                               gate; G_IS is the primary estimate regardless of this value)
-            "beta_used"      → float (annealed beta at global_step)
-            "n_transitions"  → int (total transitions in group)
+    precomputed_is_weights: optional pre-normalised IS weights (list of per-episode tensors)
+    for joint success+failure pool normalisation. When None, Pass 1 computes them within-group.
+    Returns dict with "uniform", "is_weighted", "reward_weighted", cross-variant cosines,
+    "beta_used", and "n_transitions".
     """
     online_net = online_net.to(device)
     online_net.eval()   # eval mode: NoisyLinear uses weight_mu only (deterministic)
@@ -270,12 +222,10 @@ def compute_group_gradient_with_coherence(
         beta_used   = beta_start + (1.0 - beta_start) * anneal_frac
 
         if precomputed_is_weights is not None:
-            # ── Pre-computed weights provided (joint pool normalisation) ────────
-            # Caller has already normalised IS weights over a combined group pool
-            # (e.g. success + failure together) — skip Pass 1.
+            # pre-computed over joint pool — skip Pass 1
             is_weights_per_ep = precomputed_is_weights
         else:
-            # ── Pass 1: collect per-transition losses for within-group IS norm ──
+            # Pass 1: collect per-transition losses for within-group IS normalisation
             episode_losses_detached = []  # list of (T,) detached tensors
             with torch.no_grad():
                 for episode in episodes:
@@ -305,7 +255,6 @@ def compute_group_gradient_with_coherence(
             else:
                 is_weights_per_ep = [None] * len(episodes)
 
-    # ── Aggregators ────────────────────────────────────────────────────────────
     named_params = list(online_net.named_parameters())
     overall_uniform_agg = OnlineGradientAggregator(named_params)
     overall_is_agg      = OnlineGradientAggregator(named_params) if use_target else None
@@ -315,7 +264,7 @@ def compute_group_gradient_with_coherence(
     batch_grads_is      = []
     batch_grads_rw      = []
 
-    # ── Pass 2: backward passes ────────────────────────────────────────────────
+    # Pass 2: backward passes
     batches = range(0, len(episodes), batch_size)
     for i in tqdm(batches, desc=desc, unit="batch"):
         batch_eps = episodes[i: i + batch_size]
@@ -329,8 +278,6 @@ def compute_group_gradient_with_coherence(
             T = len(episode.rewards)
 
             if use_target and T > 1 and is_w_ep is not None:
-                # ── Full offline distributional Bellman loss ──────────────────
-
                 # Backward 1 — uniform
                 online_net.zero_grad()
                 per_loss = _forward_per_loss(
@@ -357,7 +304,7 @@ def compute_group_gradient_with_coherence(
                 online_net.zero_grad()
 
             else:
-                # ── Fallback: log-prob of taken actions (proxy) ───────────────
+                # Fallback: log-prob of taken actions (proxy, no target net)
                 online_net.zero_grad()
                 obs     = episode.observations.to(device)
                 actions = episode.actions.to(device)
@@ -374,7 +321,6 @@ def compute_group_gradient_with_coherence(
             batch_grads_is.append(batch_is_agg.l2_normalized())
             batch_grads_rw.append(batch_rw_agg.l2_normalized())
 
-    # ── Cross-variant cosine similarities ──────────────────────────────────────
     raw_uniform = overall_uniform_agg.mean_gradient()
     raw_is      = overall_is_agg.mean_gradient()  if (use_target and overall_is_agg.count > 0)  else None
     raw_rw      = overall_rw_agg.mean_gradient()  if (use_target and overall_rw_agg.count > 0)  else None

@@ -1,0 +1,21 @@
+{
+  "scalar_dqn": {
+    "checkpoint_path": "C:\\Users\\Rhian\\Coding\\Uni Projects\\Dissertation\\PPOSAC-tracker\\scalar_ablation_results\\seed_1\\checkpoints\\scalar_dqn\\checkpoint_live.pt",
+    "global_step": 3000000,
+    "episode_count": 13619,
+    "n_episodes_collected": 1000,
+    "n_pos": 10324,
+    "n_neu": 207860,
+    "n_neg": 5774,
+    "gradient_magnitude_positive": 2.786761522293091,
+    "gradient_magnitude_neutral": 0.22241650521755219,
+    "gradient_magnitude_negative": 0.7271642088890076,
+    "mora_ratio": 12.52947266466253
+  },
+  "rainbow_reference": {
+    "gradient_magnitude_positive": 1.3511683940887451,
+    "gradient_magnitude_neutral": 0.10920906066894531,
+    "mora_ratio": 12.372310372530869,
+    "source_json": "C:\\Users\\Rhian\\Coding\\Uni Projects\\Dissertation\\PPOSAC-tracker\\corrected_analysis_results\\seed_1\\analysis_logs\\rainbow\\checkpoint_live.json"
+  }
+}

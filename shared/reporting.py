@@ -7,8 +7,6 @@ from datetime import datetime
 import numpy as np
 
 
-# ── label helpers ────────────────────────────────────────────────────────────
-
 def label_from_path(path: str) -> str:
     name = os.path.splitext(os.path.basename(path))[0]
     m = re.match(r"periodic_(\d+)_(\d+k)_ep(\d+)", name)
@@ -35,8 +33,6 @@ def label_from_path(path: str) -> str:
         return f"Checkpoint step {int(m.group(1)):,} — {int(m.group(2)):,} episodes"
     return name
 
-
-# ── formatting helpers ────────────────────────────────────────────────────────
 
 def _f(val, decimals=4):
     """Format a float/None for a table cell."""
@@ -66,8 +62,6 @@ def _fms(vals: list) -> str:
         return f"{clean[0]:.4f}"
     return f"{np.mean(clean):.4f} (±{np.std(clean):.4f})"
 
-
-# ── averaged report helpers ───────────────────────────────────────────────────
 
 _AVG_METRICS = [
     ("opposition_score",            "Opp. Score"),
@@ -158,8 +152,6 @@ def _summary_row(label: str, r: dict) -> str:
     )
 
 
-# ── report generation ─────────────────────────────────────────────────────────
-
 def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment_root,
                     rq_graphs=None):
     """Build a per-seed markdown report.
@@ -177,8 +169,7 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
     """
     lines = []
 
-    # ── header ────────────────────────────────────────────────────────────────
-    lines += [
+        lines += [
         "# Training & Analysis Report",
         "",
         f"**Environment:** `{env_id}`  ",
@@ -189,13 +180,11 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
         "",
     ]
 
-    # ── summary table ─────────────────────────────────────────────────────────
     lines += ["## Summary", "", _SUMMARY_HEADER, _SUMMARY_SEP]
     for label, r in checkpoint_results:
         lines.append(_summary_row(label, r))
     lines += [""]
 
-    # ── longitudinal analysis (RQ graphs) ────────────────────────────────────
     if rq_graphs:
         _RQ_LABELS = {
             # PPO-specific
@@ -273,7 +262,6 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
                 f"*{caption}*", "",
             ]
 
-    # ── per-checkpoint sections ───────────────────────────────────────────────
     for label, r in checkpoint_results:
         title = _section_title(label, r)
         lines += ["---", "", f"## {title}", ""]
@@ -300,7 +288,6 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             "",
         ]
 
-        # ── Gradient Variant Analysis (RQ1 / RQ2) ────────────────────────────
         if r.get("opposition_score_is") is not None:
             beta = r.get("beta_used")
             beta_label = f"β={beta:.3f}" if beta is not None else "β=?"
@@ -363,7 +350,6 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
                 "",
             ]
 
-    # ── aggregate tables ──────────────────────────────────────────────────────
     ach_results = [(l, r) for l, r in checkpoint_results if _classify_checkpoint(l) == "achievement"]
     per_results = [(l, r) for l, r in checkpoint_results if _classify_checkpoint(l) == "periodic"]
 
@@ -445,8 +431,6 @@ def generate_averaged_report(
 
     return "\n".join(lines)
 
-
-# ── git push ──────────────────────────────────────────────────────────────────
 
 def push_reports(report_paths: list, env_id: str):
     """Stage the given report files, commit, and push to remote."""

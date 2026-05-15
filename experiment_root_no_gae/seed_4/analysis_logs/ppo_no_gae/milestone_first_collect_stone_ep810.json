@@ -1,0 +1,13 @@
+{
+  "episode": 810,
+  "algorithm": "ppo_no_gae",
+  "split_mode": "percentile",
+  "percentile_x": 25,
+  "n_success": 125,
+  "n_failure": 125,
+  "opposition_score": -0.06003168225288391,
+  "coherence_success": 0.26096103225242007,
+  "coherence_failure": 0.26874066706408156,
+  "gradient_magnitude_success": 0.7046658992767334,
+  "gradient_magnitude_failure": 0.5169445872306824
+}

@@ -1,13 +1,6 @@
-# -*- coding: utf-8 -*-
 # Adapted from Rainbow/memory.py for Crafter (64x64 RGB, history_length=3 model channels).
-# Key changes from original:
-#   - Frame shape: (84, 84) → (3, 64, 64)  — stores full RGB obs per transition
-#   - self.history is fixed to 1 (temporal depth = 1; no temporal frame stacking)
-#     args.history_length=3 is the model's input channels, NOT temporal depth.
-#     Decoupling these avoids the blank-mask logic mangling RGB channels.
-#   - append() stores the full (3,64,64) tensor, not just state[-1]
-#   - sample() returns (B, 3, 64, 64) states directly
-from __future__ import division
+# Frame shape changed (84,84) → (3,64,64); temporal depth fixed to 1 (history_length=3
+# is model input channels, not temporal stacking) to avoid blank-mask mangling RGB.
 import numpy as np
 import torch
 
@@ -110,6 +103,24 @@ class ReplayMemory():
     self.history = 1
     self.n_step_scaling = torch.tensor([self.discount ** i for i in range(self.n)], dtype=torch.float32, device=self.device)  # Discount-scaling vector for n-step returns
     self.transitions = SegmentTree(capacity)  # Store transitions in a wrap-around cyclic buffer within a sum tree for querying priorities
+    # Outcome labels for outcome-conditioned atom weighting (Part 3).
+    # 0 = neutral, 1 = success, -1 = failure.  Set at episode end by train.py.
+    self._outcome_label = np.zeros(capacity, dtype=np.int8)
+
+  def current_index(self) -> int:
+    """Return the buffer data index just written by the last append() call."""
+    return (self.transitions.index - 1) % self.capacity
+
+  def set_outcome_label(self, buf_positions: np.ndarray, label: int) -> None:
+    """Mark all given buffer positions with an outcome label.
+
+    Called at episode end (train.py) after the episode is classified.
+    label: 1 = success, -1 = failure, 0 = neutral.
+    Positions that have been evicted (wrapped past capacity) are silently ignored
+    because the modulo maps them into still-valid slots — the worst case is a
+    stale label on an already-overwritten slot, which is harmless.
+    """
+    self._outcome_label[buf_positions % self.capacity] = label
 
   # Adds state and action at time t, reward and terminal at time t + 1
   # state: (3, 64, 64) float32 RGB tensor [0,1]
@@ -164,11 +175,23 @@ class ReplayMemory():
     capacity = self.capacity if self.transitions.full else self.transitions.index
     weights = (capacity * probs) ** -self.priority_weight  # Compute importance-sampling weights w
     weights = torch.tensor(weights / weights.max(), dtype=torch.float32, device=self.device)  # Normalise by max importance-sampling weight from batch
-    return tree_idxs, states, actions, returns, next_states, nonterminals, weights
+    outcome_labels = self._outcome_label[idxs % self.capacity]  # (batch_size,) int8; 0=neutral, 1=success, -1=failure
+    return tree_idxs, states, actions, returns, next_states, nonterminals, weights, outcome_labels
 
-  def update_priorities(self, idxs, priorities):
-    priorities = np.power(priorities, self.priority_exponent)
-    self.transitions.update(idxs, priorities)
+  def update_priorities(self, idxs, priorities, mora_modifier=None, rewards=None,
+                        mora_tracker=None):
+    # Standard path: raise raw TD errors to α  →  |δ|^α
+    adjusted = np.power(priorities, self.priority_exponent)
+
+    # MORA path: p_i = |δ_i|^α · m_{r≤0}  (post-exponent multiplicative modifier)
+    # m is a linear rescaler of the already-computed priority, applied only to r≤0.
+    if mora_modifier is not None and rewards is not None:
+      neg_mask = np.asarray(rewards) <= 0
+      adjusted[neg_mask] *= mora_modifier
+      if mora_tracker is not None:
+        mora_tracker.set_last_frac_neg(float(neg_mask.mean()))
+
+    self.transitions.update(idxs, adjusted)
 
   # Set up internal state for iterator
   def __iter__(self):
@@ -189,4 +212,35 @@ class ReplayMemory():
     self.current_idx += 1
     return state
 
-  next = __next__  # Alias __next__ for Python 2 compatibility
+
+  def save_buffer(self, path: str) -> None:
+    """Save replay buffer state to a compressed npz file.
+
+    Saves only the essential arrays — data, sum_tree, scalars — not the device
+    or hyperparams (those come from args on reload). Compressed with zlib; a full
+    500k-transition buffer (uint8 RGB frames) typically compresses to ~400-600 MB.
+    """
+    np.savez_compressed(
+      path,
+      data=self.transitions.data,
+      sum_tree=self.transitions.sum_tree,
+      outcome_label=self._outcome_label,
+      # scalars stored as 0-d arrays
+      index=np.array(self.transitions.index),
+      full=np.array(self.transitions.full),
+      tree_max=np.array(self.transitions.max),
+      priority_weight=np.array(self.priority_weight),
+      t=np.array(self.t),
+    )
+
+  def load_buffer(self, path: str) -> None:
+    """Restore replay buffer state from a compressed npz file saved by save_buffer()."""
+    d = np.load(path, allow_pickle=False)
+    self.transitions.data[:] = d['data']
+    self.transitions.sum_tree[:] = d['sum_tree']
+    self._outcome_label[:] = d['outcome_label']
+    self.transitions.index = int(d['index'])
+    self.transitions.full = bool(d['full'])
+    self.transitions.max = float(d['tree_max'])
+    self.priority_weight = float(d['priority_weight'])
+    self.t = int(d['t'])

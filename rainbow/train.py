@@ -1,20 +1,4 @@
-# -*- coding: utf-8 -*-
-"""Rainbow DQN training on Crafter.
-
-Adapted from Rainbow/main.py. Key differences from the original:
-  - Uses make_crafter_env() (Crafter gymnasium wrapper) instead of Atari env.py
-  - Observations: RGB (64,64,3) uint8 → (3,64,64) float32 [0,1]  (no temporal stacking)
-  - history_length=3 (3 RGB input channels; memory uses temporal depth=1 — see memory.py)
-  - conv_output_size=1024 (64x64 canonical, see rainbow/model.py)
-  - Rich checkpoint format (online + target net, args_dict) for offline analysis
-  - Two checkpoint slots:
-      checkpoint_live.pt  — always the latest weights; overwritten in-place; used for resume
-      checkpoint_step{N}.pt — written every checkpoint_interval steps, passed to
-                              on_checkpoint_saved callback, then deleted after analysis
-  - episode_count tracking for comparison with PPO
-  - Returns log is written to <experiment_root>/logs/rainbowreturnlog.txt
-"""
-from __future__ import division
+"""Rainbow DQN training on Crafter. Adapted from Rainbow/main.py."""
 
 import argparse
 import os
@@ -31,8 +15,6 @@ from rainbow.memory import ReplayMemory
 from wrappers import make_crafter_env
 
 
-# ── Obs preprocessing ─────────────────────────────────────────────────────────
-
 def _obs_to_state(obs, device):
     """Convert Crafter obs (H,W,3) uint8 → (3,H,W) float32 [0,1] on device."""
     import numpy as np
@@ -40,7 +22,6 @@ def _obs_to_state(obs, device):
     return torch.from_numpy(arr).permute(2, 0, 1).to(device)  # (3, H, W)
 
 
-# ── Argument parser ────────────────────────────────────────────────────────────
 
 def build_parser():
     parser = argparse.ArgumentParser(description='Rainbow on Crafter')
@@ -78,16 +59,8 @@ def build_parser():
     return parser
 
 
-# ── Env wrapper that matches Rainbow's (state, reward, done) interface ─────────
-
 class CrafterEnvWrapper:
-    """Adapts make_crafter_env() to Rainbow's Env interface.
-
-    - action_space() returns int
-    - reset() returns (1,H,W) float32 tensor
-    - step(action) returns ((1,H,W) float32 tensor, reward, done)
-    - train() / eval() control life-termination behaviour (noop here; Crafter has fixed episode length)
-    """
+    """Adapts make_crafter_env() to Rainbow's (state, reward, done) interface."""
 
     def __init__(self, args, seed=None):
         self.device = args.device
@@ -122,25 +95,39 @@ class CrafterEnvWrapper:
         return self._info
 
 
-# ── Checkpoint helpers ─────────────────────────────────────────────────────────
-
 def _ckpt_dir(experiment_root):
     d = os.path.join(experiment_root, "checkpoints", "rainbow")
     os.makedirs(d, exist_ok=True)
     return d
 
 
-def _save_live(dqn, experiment_root, args, global_step, episode_count):
-    """Overwrite checkpoint_live.pt in-place (for training resume)."""
+def _buffer_live_path(experiment_root):
+    return os.path.join(_ckpt_dir(experiment_root), "replay_buffer_live.npz")
+
+
+def _save_live(dqn, experiment_root, args, global_step, episode_count, mem=None):
+    """Overwrite checkpoint_live.pt (and optionally replay_buffer_live.npz) in-place."""
     dqn.save(_ckpt_dir(experiment_root), "checkpoint_live.pt",
              global_step=global_step, episode_count=episode_count, args=args)
+    if mem is not None:
+        buf_path = _buffer_live_path(experiment_root)
+        mem.save_buffer(buf_path)
+        print(f"  [buffer] Saved replay buffer → {os.path.basename(buf_path)}")
 
 
 def _save_analysis(dqn, experiment_root, args, global_step, episode_count):
-    """Save a named checkpoint for analysis; return its path."""
+    """Save a named checkpoint for analysis; return its path.
+
+    Consumes any accumulated training gradient from the agent's capture buffer
+    and stores it in the checkpoint under 'training_gradient'.
+    """
     name = f"checkpoint_step{global_step}.pt"
+    training_gradient = dqn.consume_grad_capture()   # None if capture not enabled
     dqn.save(_ckpt_dir(experiment_root), name,
-             global_step=global_step, episode_count=episode_count, args=args)
+             global_step=global_step, episode_count=episode_count, args=args,
+             training_gradient=training_gradient)
+    if training_gradient is not None:
+        print(f"  [grad capture] Stored training gradient ({len(training_gradient)} param tensors)")
     return os.path.join(_ckpt_dir(experiment_root), name)
 
 
@@ -160,35 +147,19 @@ def _delete_ckpt(path):
         pass
 
 
-# ── Return log ─────────────────────────────────────────────────────────────────
-
-def _log_return(experiment_root, ep_return):
+def _log_return(experiment_root, ep_return, step=None):
     log_dir = os.path.join(experiment_root, "logs")
     os.makedirs(log_dir, exist_ok=True)
     with open(os.path.join(log_dir, "rainbowreturnlog.txt"), "a") as f:
-        f.write(f"{ep_return}\n")
+        if step is not None:
+            f.write(f"{step},{ep_return}\n")
+        else:
+            f.write(f"{ep_return}\n")
 
 
-# ── Main training function ─────────────────────────────────────────────────────
-
-def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
-    """Train Rainbow DQN on Crafter.
-
-    Args:
-        args:                argparse.Namespace with all training hyperparameters.
-        on_checkpoint_saved: optional callable(path, prev_path=None, is_milestone=False)
-                             called when any checkpoint is saved.
-                             - path:         path to the saved checkpoint
-                             - prev_path:    path to the previous periodic checkpoint to use
-                                            for weight-delta (Δθ) computation; None means
-                                            skip weight-delta (early training or near-zero Δθ)
-                             - is_milestone: True for achievement-triggered checkpoints,
-                                            False for periodic step-interval checkpoints
-                             Deletion is handled by the training loop, not the callback.
-
-    Returns:
-        (episode_count, saved_paths) — total episodes and list of analysis checkpoint paths.
-    """
+def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None, mora_tracker=None,
+                 outcome_tracker=None, capture_training_grads: bool = False):
+    """Train Rainbow DQN on Crafter. Returns (episode_count, saved_paths)."""
     np.random.seed(args.seed)
     torch.manual_seed(np.random.randint(1, 10000))
     if torch.cuda.is_available() and not args.disable_cuda:
@@ -202,6 +173,11 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
     action_space = env.action_space()
 
     dqn = Agent(args, env)
+
+    # Experiment 3: enable training gradient capture if requested.
+    if capture_training_grads:
+        dqn.enable_grad_capture()
+        print("  [grad capture] Training gradient capture ENABLED.")
 
     # Optionally resume from a live checkpoint
     if getattr(args, 'model', None) and os.path.isfile(args.model):
@@ -218,6 +194,13 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
         resume_eps = 0
 
     mem = ReplayMemory(args, args.memory_capacity)
+
+    # Reload saved buffer if available — avoids the learn_start dead zone on resume.
+    buf_path = _buffer_live_path(args.experiment_root)
+    if resume_step > 0 and os.path.exists(buf_path):
+        print(f"  [buffer] Loading replay buffer from {os.path.basename(buf_path)} ...")
+        mem.load_buffer(buf_path)
+        print(f"  [buffer] Loaded — {mem.transitions.index} transitions, full={mem.transitions.full}")
 
     priority_weight_increase = (1 - args.priority_weight) / (args.T_max - args.learn_start)
 
@@ -254,6 +237,7 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
     last_periodic_step = 0   # training step at which periodic_B was saved
 
     _POSTFIX_INTERVAL = 500   # update tqdm postfix every N steps
+    episode_bufpos: list[int] = []  # buffer positions for current episode (outcome weighting)
     pbar = trange(1 + resume_step, args.T_max + 1)
     for T in pbar:
         if done:
@@ -271,6 +255,10 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
             reward = max(min(reward, args.reward_clip), -args.reward_clip)
         mem.append(state, action, reward, done)
 
+        # Outcome weighting: record just-written buffer position for this episode
+        if outcome_tracker is not None:
+            episode_bufpos.append(mem.current_index())
+
         buf_size = mem.capacity if mem.transitions.full else mem.transitions.index
         if T % _POSTFIX_INTERVAL == 0:
             buf_pct  = 100.0 * buf_size / mem.capacity
@@ -282,7 +270,22 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
 
         if done:
             episode_count += 1
-            _log_return(args.experiment_root, ep_return)
+            _log_return(args.experiment_root, ep_return, step=T)
+
+            # MORA: update rolling gradient-coherence modifier and log
+            if mora_tracker is not None:
+                mora_tracker.episode_end(ep_return)
+                mora_tracker.log_m(
+                    os.path.join(args.experiment_root, "logs", "mora_modifier_log.csv"),
+                    episode_count,
+                )
+
+            # Outcome weighting: classify episode, label buffer transitions, clear list
+            if outcome_tracker is not None and episode_bufpos:
+                label = outcome_tracker.classify(ep_return)
+                if label != 0:
+                    mem.set_outcome_label(np.array(episode_bufpos, dtype=np.int64), label)
+                episode_bufpos.clear()
 
             # Achievement milestone checkpointing
             cur_ach = {k: bool(v) for k, v in env.info.get("achievements", {}).items()}
@@ -304,14 +307,14 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
             mem.priority_weight = min(mem.priority_weight + priority_weight_increase, 1)
 
             if T % args.replay_frequency == 0:
-                dqn.learn(mem)
+                dqn.learn(mem, mora_tracker=mora_tracker)
 
             if T % args.target_update == 0:
                 dqn.update_target_net()
 
             # Periodic checkpoint: save live + analysis, rotate two-pointer state
             if args.checkpoint_interval > 0 and T % args.checkpoint_interval == 0:
-                _save_live(dqn, args.experiment_root, args, T, episode_count)
+                _save_live(dqn, args.experiment_root, args, T, episode_count, mem=mem)
 
                 ckpt_path = _save_analysis(dqn, args.experiment_root, args, T, episode_count)
                 saved_paths.append(ckpt_path)
@@ -322,7 +325,8 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
                 periodic_B = ckpt_path
                 last_periodic_step = T
 
-                if old_A and old_A != periodic_A and old_A != periodic_B:
+                keep = getattr(args, 'keep_checkpoints', False)
+                if not keep and old_A and old_A != periodic_A and old_A != periodic_B:
                     _delete_ckpt(old_A)
 
                 if on_checkpoint_saved is not None:
@@ -333,10 +337,12 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None):
     env.close()
 
     # Clean up the two held periodic checkpoints (A and B) that outlived training.
-    # These were kept alive for weight-delta computation but no further checkpoints will arrive.
-    for held in (periodic_A, periodic_B):
-        if held and os.path.exists(held):
-            _delete_ckpt(held)
+    # Skipped when keep_checkpoints=True — all step files are intentionally retained.
+    keep = getattr(args, 'keep_checkpoints', False)
+    if not keep:
+        for held in (periodic_A, periodic_B):
+            if held and os.path.exists(held):
+                _delete_ckpt(held)
 
     return episode_count, saved_paths
 

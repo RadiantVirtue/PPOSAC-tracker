@@ -28,7 +28,6 @@ from rainbow.model import DQN
 from rainbow.sampling import EpisodeData
 
 
-# ── Shared fixtures ────────────────────────────────────────────────────────────
 
 N_ACTIONS = 4
 ATOMS      = 3      # tiny atom count for speed
@@ -91,7 +90,6 @@ def _make_episode_pool(n_success=8, n_failure=8):
     return success, failure
 
 
-# ── Stage 1: Gradient computation ─────────────────────────────────────────────
 
 class TestGradientComputation:
 
@@ -214,7 +212,6 @@ class TestGradientComputation:
         )
 
 
-# ── Stage 2: IS weight computation ────────────────────────────────────────────
 
 class TestISWeights:
 
@@ -252,7 +249,6 @@ class TestISWeights:
         assert torch.allclose(w, torch.ones(10), atol=1e-5)
 
 
-# ── Stage 3: Activation analysis ──────────────────────────────────────────────
 
 class TestActivationAnalysis:
 
@@ -316,7 +312,6 @@ class TestActivationAnalysis:
         assert isinstance(cs, dict)
 
 
-# ── Stage 4: Moment of Reward ──────────────────────────────────────────────────
 
 class TestMomentOfReward:
 
@@ -419,7 +414,6 @@ class TestMomentOfReward:
                 assert -1.0 - 1e-4 <= v <= 1.0 + 1e-4, f"{k}={v:.4f} outside [-1, 1]"
 
 
-# ── Stage 5: Weight-delta ──────────────────────────────────────────────────────
 
 class TestWeightDelta:
 
@@ -493,7 +487,6 @@ class TestWeightDelta:
             )
 
 
-# ── Stage 6: Joint IS weight computation ──────────────────────────────────────
 
 class TestJointISWeights:
 
@@ -524,7 +517,6 @@ class TestJointISWeights:
         assert len(weights) == len(combined)
 
 
-# ── Stage 7: End-to-end analyze_checkpoint ────────────────────────────────────
 
 def _make_fake_checkpoint(path, seed=0):
     """Save a minimal but valid Rainbow checkpoint to disk."""

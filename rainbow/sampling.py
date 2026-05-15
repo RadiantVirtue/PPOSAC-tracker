@@ -85,12 +85,16 @@ def load_rainbow_nets(checkpoint_path: str, device: str = "cpu"):
 
 def evaluate_frozen_policy(
     checkpoint_path: str, n_episodes: int = 500, device: str = "cpu",
-    seed: int = None, num_envs: int = 16,
+    seed: int = None, num_envs: int = 16, eps_weight: float = 0.9,
 ):
     """Run n_episodes with a frozen Rainbow DQN on Crafter using parallel envs.
 
     Observations stored in EpisodeData are (T, 3, H, W) float32 RGB tensors
     in [0, 1], matching the network's expected input format (history_length=3).
+
+    Args:
+        eps_weight: coefficient for materials_progress in EPS score (default 0.9).
+            Use values ∈ {0.5, 0.9, 1.2} for sensitivity analysis (Issue #9).
 
     Returns:
         episodes:                  list of EpisodeData namedtuples
@@ -108,7 +112,7 @@ def evaluate_frozen_policy(
 
     base_seed = seed if seed is not None else 0
     vec_env = gym.vector.AsyncVectorEnv([
-        (lambda i: lambda: make_crafter_env(seed=base_seed + i * 10_000))(i)
+        (lambda i: lambda: make_crafter_env(seed=base_seed + i * 10_000, eps_weight=eps_weight))(i)
         for i in range(num_envs)
     ])
 
@@ -198,6 +202,8 @@ def evaluate_frozen_policy(
     return episodes, eps_scores, episodes_with_transitions
 
 
-def partition(episodes, eps_scores, mode: str = "eps", percentile_x: int = 25):
+def partition(episodes, eps_scores, mode: str = "eps", percentile_x: int = 25,
+              fixed_thresholds=None):
     """Partition EpisodeData list into success / failure groups."""
-    return partition_episodes(episodes, eps_scores, mode=mode, percentile_x=percentile_x)
+    return partition_episodes(episodes, eps_scores, mode=mode, percentile_x=percentile_x,
+                              fixed_thresholds=fixed_thresholds)

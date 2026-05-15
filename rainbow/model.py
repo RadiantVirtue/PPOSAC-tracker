@@ -1,9 +1,5 @@
-# -*- coding: utf-8 -*-
 # Adapted from Rainbow/model.py for Crafter (64x64 RGB input, history_length=3).
-# Key change: conv_output_size updated for 64x64 input (was 3136 for 84x84 Atari).
-#   canonical:      4×4×64  = 1024
-#   data-efficient: 2×2×64  = 256
-from __future__ import division
+# conv_output_size updated for 64x64: canonical 4×4×64=1024, data-efficient 2×2×64=256.
 import math
 import torch
 from torch import nn

@@ -28,6 +28,8 @@ def coherence(minibatch_gradients):
 
 # L2 norm of the concatenated mean gradient vector
 def gradient_magnitude(mean_gradient):
+    if mean_gradient is None:
+        return None
     flat = torch.cat([mean_gradient[n].flatten() for n in sorted(mean_gradient)])
     return flat.norm().item()
 
