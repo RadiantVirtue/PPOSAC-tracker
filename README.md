@@ -1,91 +1,123 @@
 # PPOSAC-tracker
 
-PPO and SAC implementations for MiniGrid environments, with achievement tracking and checkpoint analysis.
+Dissertation codebase: PPO and Rainbow DQN trained on Crafter, with gradient analysis, activation analysis, and RSA.
 
-## Installation
+## Install
 
 ```bash
-pip install gymnasium minigrid torch numpy tyro tensorboard torch_ac
+pip install crafter gymnasium torch stable-baselines3 tyro torch_ac umap-learn hdbscan scipy tensorboard tqdm
 ```
 
+---
 
 ## Training
 
-Both algorithms use [tyro](https://github.com/brentyi/tyro) for CLI configuration.
+### PPO - train + analyse (main entry point)
 
-**PPO:**
+Trains across 5 seeds, runs analysis at every checkpoint, writes markdown reports.
+
 ```bash
-python ppo/train.py --env-id MiniGrid-DoorKey-5x5-v0 --total-episodes 50000
+python ppo/train_and_analyze.py
+python ppo/train_and_analyze.py --seeds 1 2 3 --total_timesteps 5_000_000
 ```
 
-**SAC:**
+### Rainbow - train + analyse (main entry point)
+
 ```bash
-python sac/train.py --env-id MiniGrid-DoorKey-8x8-v0 --total-timesteps 10000000
+python rainbow/train_and_analyze.py
+python rainbow/train_and_analyze.py --seeds 1 2 3
 ```
 
-Key args (both): `--seed`, `--cuda`, `--track` (W&B), `--checkpoint-freq`, `--experiment-root`
+### Train only (no analysis)
 
-Checkpoints saved to `{experiment_root}/checkpoints/{ppo|sac}/`.
+```bash
+python ppo/train.py --total_timesteps 10_000_000 --experiment_root my_ppo_run
+python rainbow/train.py --T-max 10000000 --experiment-root my_rainbow_run
+```
+
+---
 
 ## Analysis
 
-```bash
-python analyze_checkpoint.py
-```
-
-Runs gradient analysis, activation extraction, and RSA on a saved checkpoint.
-
-## Monitoring
+### Re-run analysis on existing checkpoints
 
 ```bash
-python -m tensorboard.main --logdir runs
+# Single checkpoint
+python analyze_checkpoint.py --algorithm rainbow --checkpoint_path path/to/checkpoint.pt ...
+
+# Re-run corrected MoR analysis across all seeds
+python run_corrected_analysis.py \
+    --experiment_root rainbow_experiment_root \
+    --output_root corrected_analysis_results
 ```
 
-## Project Structure
+### Full dissertation pipeline (all analysis phases)
 
-```
-PPOSAC-tracker/
-├── ppo/
-│   ├── train.py            # PPO training (ACModel + torch_ac.PPOAlgo)
-│   ├── sampling.py         # Evaluation episode rollouts
-│   ├── activations.py      # Activation extraction
-│   ├── gradients.py        # Gradient analysis
-│   └── checkpoint_gen.py   # Milestone checkpoint saving
-├── sac/
-│   ├── train.py            # SAC+PER training (CNN encoder, soft target updates)
-│   ├── per_buffer.py       # TaggedPERBuffer (SumTree priority replay)
-│   ├── tagged_buffer.py    # TaggedReplayBuffer base + EpisodeStore
-│   ├── sampling.py         # Evaluation rollouts
-│   ├── gradients.py        # Gradient analysis
-│   └── reward_moments.py   # Reward statistics
-├── shared/
-│   ├── model.py            # ACModel (CNN actor-critic)
-│   ├── format.py           # Observation preprocessing
-│   ├── networks.py         # ACModelWrapper, SACQNetwork, SACActor
-│   ├── achievements.py     # Achievement definitions + eps scoring
-│   ├── activation_utils.py # Shared activation helpers
-│   ├── gradient_utils.py   # Shared gradient helpers
-│   ├── metrics.py          # Evaluation metrics
-│   ├── rsa.py              # Representational similarity analysis
-│   ├── storage.py          # Saving analysis results
-│   └── thresholding.py     # Episode partitioning
-├── analysis/
-│   ├── run_rsa.py          # RSA analysis runner
-│   └── run_sac_analysis.py # SAC analysis runner
-├── wrappers.py             # DoorKey + KeyCorridor achievement wrappers
-├── analyze_checkpoint.py   # Analysis pipeline entry point
-└── sweep.py                # Hyperparameter sweep
+Runs phases B–I (fixed-threshold, scalar ablation, frozen RSA, EPS sensitivity, etc.) in dependency order.
+
+```bash
+python run_pipeline.py                        # all phases
+python run_pipeline.py --device cuda
+python run_pipeline.py --skip D G H I        # critical path only
+python run_pipeline.py --only B F            # specific phases
+python run_pipeline.py --include_e           # include Phase E (slow - reruns training)
 ```
 
-## Environments
+Phases: B=corrected analysis, C=scalar DQN ablation, D=fixed-threshold, E=counterfactual gradient, F=robustness report, G=PPO cross-seed, H=frozen RSA, I=EPS sensitivity.
 
-Supported environments with achievement tracking:
+### Full Rainbow pipeline (train all seeds + all phases)
 
-| Environment | Wrapper |
-|-------------|---------|
-| `MiniGrid-DoorKey-*` | `DoorKeyAchievementWrapper` |
-| `MiniGrid-KeyCorridorS*` | `KeyCorridorAchievementWrapper` |
+```bash
+python run_rainbow_full_pipeline.py
+python run_rainbow_full_pipeline.py --device cuda --experiment_root rainbow_v2
+```
 
-Both wrappers inject `info["achievements"]` (per-milestone flags) and `info["eps"]` (exploration progress score) into each step and reset.
+---
 
-Full environment list: https://minigrid.farama.org/environments/minigrid/
+## Dissertation figures
+
+Generates all PDFs into `GRAPHS/`.
+
+```bash
+python dissertation_graphs/run_all.py \
+    --ppo_root ppo_experiment_root \
+    --rainbow_root rainbow_experiment_root \
+    --rainbow_v2_root rainbow_v2
+```
+
+---
+
+## Project structure
+
+```
+ppo/
+  train.py               PPO training (SB3 CnnPolicy)
+  train_and_analyze.py   Train + analyse entry point
+  gradients.py           Gradient computation
+  activations.py         Activation extraction
+  sampling.py            Evaluation rollouts
+rainbow/
+  train.py               Rainbow DQN training
+  train_and_analyze.py   Train + analyse entry point
+  agent.py               Rainbow agent (adapted from Kaixhin/Rainbow)
+  model.py               DQN model with NoisyLinear + dueling heads
+  memory.py              Prioritised replay buffer
+  gradients.py           G_uniform / G_IS / G_reward gradient variants
+  activations.py         Activation extraction
+  moment_of_reward.py    MORA sub-partition analysis
+shared/
+  achievements.py        Crafter achievement definitions + EPS scoring
+  activation_utils.py    Hook-based activation extraction, UMAP, HDBSCAN
+  gradient_utils.py      OnlineGradientAggregator, cosine similarity
+  rsa.py                 Representational Similarity Analysis
+  thresholding.py        Episode partitioning (EPS / percentile / fixed)
+  reporting.py           Markdown report generation
+  graphing.py            Longitudinal plot generation
+  storage.py             Analysis result save/load
+wrappers.py              Crafter gymnasium wrapper + achievement injection
+analyze_checkpoint.py    Core analysis pipeline (called by all train_and_analyze scripts)
+run_pipeline.py          All post-training analysis phases
+run_rainbow_full_pipeline.py  Full Rainbow training + all phases
+dissertation_graphs/     Figure generation scripts for the dissertation
+experiments/             Ablation and validation experiments
+```
