@@ -1,123 +1,98 @@
 # PPOSAC-tracker
 
-Dissertation codebase: PPO and Rainbow DQN trained on Crafter, with gradient analysis, activation analysis, and RSA.
+Dissertation codebase: RL agents trained on Crafter, with gradient, activation, and RSA analysis to investigate credit assignment.
 
 ## Install
 
 ```bash
-pip install crafter gymnasium torch stable-baselines3 tyro torch_ac umap-learn hdbscan scipy tensorboard tqdm
+pip install crafter gymnasium torch stable-baselines3 umap-learn hdbscan scipy mlflow tqdm
 ```
 
 ---
 
-## Training
+## How to run
 
-### PPO - train + analyse (main entry point)
-
-Trains across 5 seeds, runs analysis at every checkpoint, writes markdown reports.
+### Train + evaluate + analyse (new pipeline)
 
 ```bash
-python ppo/train_and_analyze.py
-python ppo/train_and_analyze.py --seeds 1 2 3 --total_timesteps 5_000_000
+python -m training.trainer --entity ppo_crafter --n_steps 1_000_000 --eval_every 50_000
 ```
 
-### Rainbow - train + analyse (main entry point)
+### View results
 
 ```bash
-python rainbow/train_and_analyze.py
-python rainbow/train_and_analyze.py --seeds 1 2 3
+mlflow ui --backend-store-uri mlruns/
 ```
 
-### Train only (no analysis)
+Then open `http://localhost:5000` — experiment `ppo_crafter` shows longitudinal metric plots and RDM artifacts.
 
-```bash
-python ppo/train.py --total_timesteps 10_000_000 --experiment_root my_ppo_run
-python rainbow/train.py --T-max 10000000 --experiment-root my_rainbow_run
+### Adding a new entity (algorithm + environment)
+
+See [ADDING_ENTITIES.md](ADDING_ENTITIES.md) for step-by-step instructions and skeleton code.
+
+---
+
+## New project structure
+
+```
+core/                   HARD-CODED — data structures, Entity protocol, shared utilities
+  data.py               Canonical dataclasses: EpisodeData, EvaluationBatch, GradientResult,
+                          ActivationResult, AnalysisResult
+  entity.py             Entity protocol — the interface every entity must satisfy
+  metrics.py            Scalar metrics: opposition_score, coherence, gradient_magnitude,
+                          activation_separation, centroid_cosine_distance
+  gradient_utils.py     OnlineGradientAggregator, cosine_similarity_flat
+  activation_utils.py   extract_activations (hook-based), reduce_dimensions (UMAP),
+                          cluster_activations (HDBSCAN), compute_centroids
+  thresholding.py       partition_episodes (eps / percentile / fixed modes)
+
+entities/               SOFT-CODED — one file per algorithm+environment pair
+  definitions/
+    crafter.py          22 Crafter achievements: names, labels, groups, materials
+  ppo_crafter.py        PPO (Stable-Baselines3) + Crafter entity
+
+training/               HARD-CODED — orchestration and episode collection
+  run_config.py         RunConfig dataclass — single source of truth for all parameters
+  trainer.py            Top-level orchestrator; triggers eval + analysis at each checkpoint
+  eval_runner.py        Generic episode collection loop; saves EvaluationBatch to temp file
+  achievement_tracker.py Per-episode RSA frame logging (separate from EPS scoring)
+
+analysis/               HARD-CODED — analysis pipeline
+  pipeline.py           Orchestrator: load temp -> partition -> analyse -> log -> delete
+  gradient_analyzer.py  Delegates to entity.compute_gradients()
+  activation_analyzer.py UMAP + HDBSCAN + centroids for success and failure groups
+  rsa_analyzer.py       Cosine-dissimilarity RDM; Spearman rho per achievement group
+
+storage/                HARD-CODED — persistence
+  temp_store.py         EvaluationBatch <-> compressed .npz (~400-700 MB per batch);
+                          deleted immediately after analysis
+  mlflow_logger.py      AnalysisResult -> MLflow metrics and RDM artifacts
+
+README.md               This file
+ADDING_ENTITIES.md      How to add a new entity with skeleton code
+```
+
+### Legacy files (kept, not yet ported)
+
+```
+ppo/                    Original PPO training + analysis scripts
+rainbow/                Original Rainbow DQN training + analysis scripts
+shared/                 Original shared utilities (superseded by core/)
+wrappers.py             Original Crafter wrappers (superseded by entities/ppo_crafter.py)
+analyze_checkpoint.py   Original analysis entry point
+run_pipeline.py         Multi-phase dissertation pipeline
+dissertation_graphs/    Figure generation scripts
+experiments/            Ablation experiments
 ```
 
 ---
 
-## Analysis
+## Achievement concepts
 
-### Re-run analysis on existing checkpoints
+Three distinct concepts — kept strictly separate in the code:
 
-```bash
-# Single checkpoint
-python analyze_checkpoint.py --algorithm rainbow --checkpoint_path path/to/checkpoint.pt ...
-
-# Re-run corrected MoR analysis across all seeds
-python run_corrected_analysis.py \
-    --experiment_root rainbow_experiment_root \
-    --output_root corrected_analysis_results
-```
-
-### Full dissertation pipeline (all analysis phases)
-
-Runs phases B–I (fixed-threshold, scalar ablation, frozen RSA, EPS sensitivity, etc.) in dependency order.
-
-```bash
-python run_pipeline.py                        # all phases
-python run_pipeline.py --device cuda
-python run_pipeline.py --skip D G H I        # critical path only
-python run_pipeline.py --only B F            # specific phases
-python run_pipeline.py --include_e           # include Phase E (slow - reruns training)
-```
-
-Phases: B=corrected analysis, C=scalar DQN ablation, D=fixed-threshold, E=counterfactual gradient, F=robustness report, G=PPO cross-seed, H=frozen RSA, I=EPS sensitivity.
-
-### Full Rainbow pipeline (train all seeds + all phases)
-
-```bash
-python run_rainbow_full_pipeline.py
-python run_rainbow_full_pipeline.py --device cuda --experiment_root rainbow_v2
-```
-
----
-
-## Dissertation figures
-
-Generates all PDFs into `GRAPHS/`.
-
-```bash
-python dissertation_graphs/run_all.py \
-    --ppo_root ppo_experiment_root \
-    --rainbow_root rainbow_experiment_root \
-    --rainbow_v2_root rainbow_v2
-```
-
----
-
-## Project structure
-
-```
-ppo/
-  train.py               PPO training (SB3 CnnPolicy)
-  train_and_analyze.py   Train + analyse entry point
-  gradients.py           Gradient computation
-  activations.py         Activation extraction
-  sampling.py            Evaluation rollouts
-rainbow/
-  train.py               Rainbow DQN training
-  train_and_analyze.py   Train + analyse entry point
-  agent.py               Rainbow agent (adapted from Kaixhin/Rainbow)
-  model.py               DQN model with NoisyLinear + dueling heads
-  memory.py              Prioritised replay buffer
-  gradients.py           G_uniform / G_IS / G_reward gradient variants
-  activations.py         Activation extraction
-  moment_of_reward.py    MORA sub-partition analysis
-shared/
-  achievements.py        Crafter achievement definitions + EPS scoring
-  activation_utils.py    Hook-based activation extraction, UMAP, HDBSCAN
-  gradient_utils.py      OnlineGradientAggregator, cosine similarity
-  rsa.py                 Representational Similarity Analysis
-  thresholding.py        Episode partitioning (EPS / percentile / fixed)
-  reporting.py           Markdown report generation
-  graphing.py            Longitudinal plot generation
-  storage.py             Analysis result save/load
-wrappers.py              Crafter gymnasium wrapper + achievement injection
-analyze_checkpoint.py    Core analysis pipeline (called by all train_and_analyze scripts)
-run_pipeline.py          All post-training analysis phases
-run_rainbow_full_pipeline.py  Full Rainbow training + all phases
-dissertation_graphs/     Figure generation scripts for the dissertation
-experiments/             Ablation and validation experiments
-```
+| Concept | Purpose | Where |
+|---------|---------|-------|
+| **Achievement counting** | Compute EPS per episode. Used for success/failure partitioning. | `entity.compute_eps()` — SOFT |
+| **Achievement frame logging** | Collect first obs frame per achievement unlock. Used as RSA stimuli. | `training/achievement_tracker.py` — HARD |
+| **Training-level tracking** | First global step each achievement is ever seen. For graphing. | Tabled for later phase |
