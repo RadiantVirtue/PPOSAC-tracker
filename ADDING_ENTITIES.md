@@ -1,4 +1,4 @@
-# Adding a new entity
+﻿# Adding a new entity
 
 An entity = one algorithm + one environment. Each combination gets its own file in `entities/`.
 
@@ -16,7 +16,7 @@ The pipeline (`training/`, `analysis/`, `storage/`) is entirely HARD-CODED and n
 
 ---
 
-## Step 1 — Create the environment definitions file
+## Step 1 - Create the environment definitions file
 
 **Skip if `entities/definitions/{environment}.py` already exists.**
 
@@ -25,7 +25,7 @@ The pipeline (`training/`, `analysis/`, `storage/`) is entirely HARD-CODED and n
 ```python
 """{environment} achievement definitions.
 
-Imported by all entities that use this environment. Contains no logic —
+Imported by all entities that use this environment. Contains no logic -
 only the data that describes what achievements exist and how to categorise them.
 """
 
@@ -47,7 +47,7 @@ ACHIEVEMENT_GROUPS: dict[str, frozenset] = {
     # "group_name": frozenset({"Label A", "Label B"}),
 }
 
-# Materials required to craft each achievement — used by compute_eps() only.
+# Materials required to craft each achievement - used by compute_eps() only.
 # Omit if the environment has no material-based progress tracking.
 ACHIEVEMENT_MATERIALS: dict[str, dict[str, int]] = {
     # "achievement_id": {"material_name": quantity_required},
@@ -56,7 +56,7 @@ ACHIEVEMENT_MATERIALS: dict[str, dict[str, int]] = {
 
 ---
 
-## Step 2 — Create the entity file
+## Step 2 - Create the entity file
 
 **File:** `entities/{algorithm}_{environment}.py`
 
@@ -106,8 +106,8 @@ class {Algorithm}{Environment}:
             observation_space: Box(low=0, high=255, shape=(H,W,C), dtype=np.uint8)
             action_space:      Discrete(N_ACTIONS)
             info (each step):
-                "achievements": dict[str, bool] — achievement status
-                "inventory":    dict[str, int]  — material counts (if EPS uses materials)
+                "achievements": dict[str, bool] - achievement status
+                "inventory":    dict[str, int]  - material counts (if EPS uses materials)
         """
         # return YourWrapper(YourBaseEnv(seed=seed))
         raise NotImplementedError
@@ -128,9 +128,9 @@ class {Algorithm}{Environment}:
 
         Args:
             model: model object from load_checkpoint()
-            obs:   (H, W, C) uint8 numpy array — single observation
+            obs:   (H, W, C) uint8 numpy array - single observation
         Returns:
-            int — action index in range [0, n_actions)
+            int - action index in range [0, n_actions)
         """
         raise NotImplementedError
 
@@ -144,7 +144,7 @@ class {Algorithm}{Environment}:
             achievements: {ach_id: bool} from env info at episode end
             inventory:    {material: count} from env info (pass {} if not used)
         Returns:
-            float — EPS score; higher = better episode
+            float - EPS score; higher = better episode
         """
         n_achieved     = sum(1 for v in achievements.values() if v)
         materials_frac = _materials_fraction(achievements, inventory)
@@ -156,7 +156,7 @@ class {Algorithm}{Environment}:
 
         Args:
             model:  model object from load_checkpoint()
-            obs_np: (N, H, W, C) uint8 numpy array — may be a batch
+            obs_np: (N, H, W, C) uint8 numpy array - may be a batch
             device: torch device string
         Returns:
             torch.Tensor on device in the format required by the model
@@ -244,7 +244,7 @@ def _materials_fraction(achievements: dict[str, bool], inventory: dict) -> float
 
 ---
 
-## Step 3 — Verify the entity satisfies the protocol
+## Step 3 - Verify the entity satisfies the protocol
 
 ```python
 python -c "
@@ -259,7 +259,7 @@ If this fails, the entity is missing one or more methods or attributes defined i
 
 ---
 
-## Step 4 — Run the pipeline
+## Step 4 - Run the pipeline
 
 ```python
 from training.run_config import RunConfig
@@ -285,12 +285,12 @@ python -m training.trainer --entity {algorithm}_{environment} --n_steps 1_000_00
 
 ## Entity protocol reference
 
-Defined in `core/entity.py`. All fields and methods must be satisfied structurally (no inheritance required — `typing.Protocol`).
+Defined in `core/entity.py`. All fields and methods must be satisfied structurally (no inheritance required - `typing.Protocol`).
 
 | Attribute / method | Type | Description |
 |--------------------|------|-------------|
 | `entity_id` | `str` | Unique ID used as MLflow experiment name |
-| `obs_shape` | `tuple` | `(H, W, C)` — canonical observation shape |
+| `obs_shape` | `tuple` | `(H, W, C)` - canonical observation shape |
 | `n_actions` | `int` | Number of discrete actions |
 | `achievement_names` | `list[str]` | Ordered achievement IDs from env info |
 | `achievement_label_map` | `dict[str, str]` | ID -> display label for RSA plots |
@@ -308,7 +308,7 @@ Defined in `core/entity.py`. All fields and methods must be satisfied structural
 
 ## Notes
 
-- The pipeline never imports from `entities/` directly — it only calls Entity protocol methods.
+- The pipeline never imports from `entities/` directly - it only calls Entity protocol methods.
 - `compute_eps` and `AchievementTracker` are completely separate. EPS counts achievements for partitioning; the tracker logs first-unlock frames for RSA stimuli.
 - `hook_layer` must be a valid key in `dict(get_policy(model).named_modules())`.
 - `preprocess_obs` must return a tensor that `get_policy(model)` can accept as input.

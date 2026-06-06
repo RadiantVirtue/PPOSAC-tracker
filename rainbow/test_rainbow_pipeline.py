@@ -1,4 +1,4 @@
-"""tests/test_rainbow_pipeline.py
+﻿"""tests/test_rainbow_pipeline.py
 
 Integration and unit tests for the Rainbow training + analysis pipeline.
 Synthetic data is injected directly into each pipeline stage; no real
@@ -147,7 +147,7 @@ class TestGradientComputation:
         flat_uni = torch.cat([raw_uni[k].flatten() for k in sorted(raw_uni)])
         flat_is  = torch.cat([raw_is[k].flatten()  for k in sorted(raw_is)])
         assert not torch.allclose(flat_uni, flat_is, atol=1e-7), (
-            "IS-weighted and uniform gradients are identical — IS weighting has no effect"
+            "IS-weighted and uniform gradients are identical - IS weighting has no effect"
         )
 
     def test_batch_grads_count_matches_batches(self):

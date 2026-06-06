@@ -1,11 +1,11 @@
-"""Representational Similarity Analysis for Rainbow DQN (Crafter).
+﻿"""Representational Similarity Analysis for Rainbow DQN (Crafter).
 
 For Rainbow's (T,3,H,W) float32 observation format. For PPO/SAC raw (H,W,C)
 uint8 observations, use shared/rsa.py instead.
 
 Mirrors shared/rsa.py but adapted for Rainbow's observation format:
   - EpisodeData.observations are (T, 3, H, W) float32 tensors in [0, 1]
-  - obs at step_idx are (3, H, W) float32 — no obs_to_tensor conversion needed
+  - obs at step_idx are (3, H, W) float32 - no obs_to_tensor conversion needed
   - Activation extraction uses RAINBOW_HOOK_LAYER ("convs"), flatten_output=True → 1024-dim
 
 Frozen stimulus set (reference_stimuli param):
@@ -29,7 +29,7 @@ import numpy as np
 import torch
 from scipy.stats import spearmanr
 
-from rainbow.activations import RAINBOW_HOOK_LAYER  # noqa: F401 — re-exported for callers
+from rainbow.activations import RAINBOW_HOOK_LAYER  # noqa: F401 - re-exported for callers
 from shared.activation_utils import extract_activations
 
 
@@ -59,7 +59,7 @@ STIMULUS_ACHIEVEMENTS = {
     "make_iron_sword":     "Iron Sword",
 }
 
-# Functional groups — frozensets of stimulus labels (items may appear in multiple groups)
+# Functional groups - frozensets of stimulus labels (items may appear in multiple groups)
 FIGHTING = frozenset({
     "Zombie", "Skeleton",
     "Wood Sword", "Stone Sword", "Iron Sword",
@@ -114,7 +114,7 @@ def _build_rdm(centroids, labels):
 
     centroids is a dict mapping label → centroid array (or None if unobserved).
     Entries where either centroid is None are left as NaN so that Spearman ρ
-    computation can exclude them (frozen stimulus set — Issue #6).
+    computation can exclude them (frozen stimulus set - Issue #6).
     """
     n = len(labels)
     rdm = np.full((n, n), np.nan)
@@ -122,7 +122,7 @@ def _build_rdm(centroids, labels):
         for j, lj in enumerate(labels):
             ci, cj = centroids.get(li), centroids.get(lj)
             if ci is None or cj is None:
-                continue  # leave as NaN — stimulus not observed at this checkpoint
+                continue  # leave as NaN - stimulus not observed at this checkpoint
             ni, nj = np.linalg.norm(ci), np.linalg.norm(cj)
             if ni < 1e-8 or nj < 1e-8:
                 rdm[i, j] = 1.0
@@ -150,7 +150,7 @@ def _alignment_score(rdm, labels, group_set):
     ])
     triu = np.triu_indices(n, k=1)
     rdm_vals, gt_vals = rdm[triu], gt[triu]
-    # Exclude NaN pairs — arise when reference_stimuli is frozen and a stimulus
+    # Exclude NaN pairs - arise when reference_stimuli is frozen and a stimulus
     # was not observed at this checkpoint (Issue #6).
     valid = ~np.isnan(rdm_vals)
     rdm_vals, gt_vals = rdm_vals[valid], gt_vals[valid]
@@ -170,7 +170,7 @@ def run_rsa(
     """Full RSA pipeline for a Rainbow checkpoint.
 
     Args:
-        online_net:                DQN online network (eval mode) — used for activation hook
+        online_net:                DQN online network (eval mode) - used for activation hook
         episodes_with_transitions: list of (EpisodeData, {ach: step_idx})
         layer_name:                layer to hook (default: RAINBOW_HOOK_LAYER = "convs")
         device:                    torch device string
@@ -182,14 +182,14 @@ def run_rsa(
             Derive from the final checkpoint's observed stimulus set.
 
     Returns dict:
-        rdm                  — n×n list-of-lists (or None if <2 stimuli with data)
-        labels               — ordered list of stimulus names in the RDM
-        alignment_fighting   — Spearman ρ vs Fighting group GT (or None)
-        alignment_resource   — Spearman ρ vs Resource group GT (or None)
-        alignment_crafting   — Spearman ρ vs Crafting group GT (or None)
-        alignment_housing    — Spearman ρ vs Housing group GT (or None)
-        n_stimuli            — number of stimuli with observed frames (not NaN)
-        n_frames             — {stimulus: count of frames collected}
+        rdm                  - n×n list-of-lists (or None if <2 stimuli with data)
+        labels               - ordered list of stimulus names in the RDM
+        alignment_fighting   - Spearman ρ vs Fighting group GT (or None)
+        alignment_resource   - Spearman ρ vs Resource group GT (or None)
+        alignment_crafting   - Spearman ρ vs Crafting group GT (or None)
+        alignment_housing    - Spearman ρ vs Housing group GT (or None)
+        n_stimuli            - number of stimuli with observed frames (not NaN)
+        n_frames             - {stimulus: count of frames collected}
     """
     online_net = online_net.to(device)
     stimulus_obs = _collect_stimulus_frames(episodes_with_transitions)

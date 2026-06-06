@@ -1,4 +1,4 @@
-"""shared/graphing.py — PPO / Rainbow analysis visualisation.
+﻿"""shared/graphing.py - PPO / Rainbow analysis visualisation.
 
 Usage:
     python shared/graphing.py <experiment_root> [--dpi 150] [--algorithm ppo|rainbow]
@@ -54,27 +54,27 @@ ACHIEVEMENT_TIERS: dict[str, int] = {
 }
 
 TIER_COLORS = {
-    1: "#aabb00",   # lime/yellow-green  (H≈72°  — gap in data palette)
-    2: "#00b8c8",   # cyan               (H≈185° — distinct from C_TEAL #008080)
-    3: "#bb44bb",   # magenta            (H≈300° — distinct from C_VIOLET #8020c0)
-    4: "#884400",   # dark sienna/brown  (H≈30°  — much darker than C_ORANGE_LIGHT)
+    1: "#aabb00",   # lime/yellow-green  (H≈72°  - gap in data palette)
+    2: "#00b8c8",   # cyan               (H≈185° - distinct from C_TEAL #008080)
+    3: "#bb44bb",   # magenta            (H≈300° - distinct from C_VIOLET #8020c0)
+    4: "#884400",   # dark sienna/brown  (H≈30°  - much darker than C_ORANGE_LIGHT)
 }
 
-# Hardcoded achievement clusters — membership is stable across all seeds/runs.
+# Hardcoded achievement clusters - membership is stable across all seeds/runs.
 # Steps are still computed from data; only the grouping is fixed here.
 PPO_CLUSTERS: list[frozenset] = [
-    # C1 — ~step 50,000: simultaneous early-tier unlocks
+    # C1 - ~step 50,000: simultaneous early-tier unlocks
     frozenset({"collect_wood", "wake_up", "collect_drink", "place_table", "collect_sapling",
                "place_plant", "eat_cow", "defeat_zombie", "make_wood_pickaxe",
                "make_wood_sword", "defeat_skeleton"}),
-    # C2 — ~step 100,000: stone prerequisites
+    # C2 - ~step 100,000: stone prerequisites
     frozenset({"collect_stone", "place_stone"}),
 ]
 RAINBOW_CLUSTERS: list[frozenset] = [
-    # C1 — ~step 100,000: simultaneous early-tier unlocks
+    # C1 - ~step 100,000: simultaneous early-tier unlocks
     frozenset({"collect_wood", "collect_drink", "collect_sapling", "place_plant",
                "eat_cow", "defeat_zombie", "defeat_skeleton"}),
-    # C2 — ~step 1,250,000: stone-tool branch
+    # C2 - ~step 1,250,000: stone-tool branch
     frozenset({"collect_stone", "make_wood_sword"}),
 ]
 
@@ -112,7 +112,7 @@ C_VIOLET       = "#8020c0"   # activation cosine distance
 C_TEAL         = "#008080"   # RSA alignment / other axes
 C_COHFAIL      = "#1a6fa0"   # coherence failure (hue-distinct from C_ORANGE_LIGHT)
 
-# RSA group colours — each maps to an existing metric colour so cross-plot identity is clear
+# RSA group colours - each maps to an existing metric colour so cross-plot identity is clear
 C_RSA_FIGHTING = "#d62020"   # = C_RED
 C_RSA_RESOURCE = "#008080"   # = C_TEAL
 C_RSA_CRAFTING = "#3a3acc"   # = C_INDIGO
@@ -466,7 +466,7 @@ def _add_all_achievement_markers(
     achievements by step proximity.  The first two groups (by median step) get
     vivid special colors; all others use their tier color.
 
-    Returns a list of Line2D proxy handles — one per achievement — for use in a
+    Returns a list of Line2D proxy handles - one per achievement - for use in a
     separate legend call.  Does NOT add proxy artists to the axes itself.
     """
     import matplotlib.lines as mlines
@@ -912,7 +912,7 @@ def plot_return_vs_metrics(
             )
             ax1.set_xlabel("Global Training Step")
             ax1.set_title(
-                f"PPO Seed {seed_id} — Return vs {metric_label} Over Training"
+                f"PPO Seed {seed_id} - Return vs {metric_label} Over Training"
             )
 
             if cluster_notes:
@@ -957,7 +957,7 @@ def plot_return_vs_metrics_averaged(
     step_grid = np.array(sorted(periodic.keys()), dtype=float)
 
     return_at_grid: list[np.ndarray] = []
-    # (seed_id, [(episode, step), ...]) — also used for mapping file and 5k marks
+    # (seed_id, [(episode, step), ...]) - also used for mapping file and 5k marks
     all_ep_step_pairs: list[tuple[int, list[tuple[int, int]]]] = []
 
     for seed_id in seed_ids:
@@ -998,7 +998,7 @@ def plot_return_vs_metrics_averaged(
         return_at_grid.append(resampled)
 
     if not return_at_grid:
-        print("  No return logs found — skipping averaged return-vs-metric graphs")
+        print("  No return logs found - skipping averaged return-vs-metric graphs")
         return
 
     mat = np.array(return_at_grid)
@@ -1091,7 +1091,7 @@ def plot_return_vs_metrics_averaged(
         valid = np.isfinite(avg_return)
         ax1.plot(step_grid[valid], avg_return[valid], color="#888888",
                  linewidth=1.4, alpha=0.85, zorder=2,
-                 label=f"Return — mean ± 1 std ({n_seeds_ret} seeds, w={_RETURN_SMOOTH})")
+                 label=f"Return - mean ± 1 std ({n_seeds_ret} seeds, w={_RETURN_SMOOTH})")
         ax1.fill_between(step_grid[valid],
                          (avg_return - std_return)[valid],
                          (avg_return + std_return)[valid],
@@ -1148,7 +1148,7 @@ def plot_return_vs_metrics_averaged(
         )
         ax1.set_xlabel("Global Training Step")
         ax1.set_title(
-            f"PPO (Averaged, {n_seeds_ret} Seeds) — Return vs {metric_label} Over Training"
+            f"PPO (Averaged, {n_seeds_ret} Seeds) - Return vs {metric_label} Over Training"
         )
 
         safe = metric_key.replace(".", "_")
@@ -1199,12 +1199,12 @@ _PER_SEED_SPECS = [
 ]
 
 # Weight-delta colour scheme: three shades of blue-purple per group
-C_DELTA_UNIFORM_S  = "#1a6bbf"   # uniform — success
-C_DELTA_IS_S       = "#7b2d8b"   # IS-weighted — success
-C_DELTA_REWARD_S   = "#c0507a"   # reward-weighted — success
-C_DELTA_UNIFORM_F  = "#5e9ecf"   # uniform — failure (lighter)
-C_DELTA_IS_F       = "#b566c8"   # IS-weighted — failure (lighter)
-C_DELTA_REWARD_F   = "#e08aa6"   # reward-weighted — failure (lighter)
+C_DELTA_UNIFORM_S  = "#1a6bbf"   # uniform - success
+C_DELTA_IS_S       = "#7b2d8b"   # IS-weighted - success
+C_DELTA_REWARD_S   = "#c0507a"   # reward-weighted - success
+C_DELTA_UNIFORM_F  = "#5e9ecf"   # uniform - failure (lighter)
+C_DELTA_IS_F       = "#b566c8"   # IS-weighted - failure (lighter)
+C_DELTA_REWARD_F   = "#e08aa6"   # reward-weighted - failure (lighter)
 
 _SMOOTH_WINDOW = 3
 
@@ -1267,7 +1267,7 @@ def plot_all_per_seed_graphs(
 
             _apply_xaxis_millions(ax)
             ax.set_ylabel(ylabel)
-            ax.set_title(f"PPO Seed {seed_id} — {title_suffix} Over Training")
+            ax.set_title(f"PPO Seed {seed_id} - {title_suffix} Over Training")
 
             safe_metric = metric.replace(".", "_").replace("/", "_")
             _save_fig(fig, seed_out, f"ppo_seed{seed_id}_{safe_metric}.png", dpi)
@@ -1327,7 +1327,7 @@ def plot_opposition_per_seed_detail(agg, periodic, seed_ids, ach_steps, out_dir,
         _apply_xaxis_millions(ax)
         ax.set_ylabel("Opposition Score")
         ax.set_title(
-            f"PPO Seed {seed_id} — Opposition Score: Raw vs Smoothed vs Average\n"
+            f"PPO Seed {seed_id} - Opposition Score: Raw vs Smoothed vs Average\n"
             "(lower = better gradient distinction between success/failure)"
         )
 
@@ -1340,7 +1340,7 @@ def plot_opposition_score(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
     _plot_periodic_single(
         agg, periodic, seed_ids,
         metric="opposition_score",
-        title="PPO — Gradient Opposition Score Over Training\n"
+        title="PPO - Gradient Opposition Score Over Training\n"
               "(lower = better distinction between success/failure gradients)",
         ylabel="Opposition Score",
         out_dir=out_dir, filename="ppo_periodic_opposition_score.png",
@@ -1354,7 +1354,7 @@ def plot_coherence(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
         metric_a="coherence_success", metric_b="coherence_failure",
         label_a="Success group", label_b="Failure group",
         color_a=C_ORANGE_LIGHT, color_b=C_ORANGE_DARK,
-        title="PPO — Within-Group Gradient Coherence Over Training",
+        title="PPO - Within-Group Gradient Coherence Over Training",
         ylabel="Coherence (cosine alignment)",
         out_dir=out_dir, filename="ppo_periodic_coherence_combined.png",
         ach_steps=ach_steps, dpi=dpi,
@@ -1367,7 +1367,7 @@ def plot_gradient_magnitude(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
         metric_a="gradient_magnitude_success", metric_b="gradient_magnitude_failure",
         label_a="Success group", label_b="Failure group",
         color_a=C_YELLOW_LIGHT, color_b=C_YELLOW_DARK,
-        title="PPO — Gradient Magnitude Over Training (Success vs Failure)",
+        title="PPO - Gradient Magnitude Over Training (Success vs Failure)",
         ylabel="Gradient L2 Magnitude",
         out_dir=out_dir, filename="ppo_periodic_gradient_magnitude_combined.png",
         ach_steps=ach_steps, dpi=dpi,
@@ -1378,7 +1378,7 @@ def plot_activation_separation(agg, periodic, seed_ids, ach_steps, out_dir, dpi)
     _plot_periodic_single(
         agg, periodic, seed_ids,
         metric="activation_separation",
-        title="PPO — Activation Euclidean Separation Over Training\n"
+        title="PPO - Activation Euclidean Separation Over Training\n"
               "(Euclidean distance between success/failure activation centroids)",
         ylabel="Euclidean Distance",
         out_dir=out_dir, filename="ppo_periodic_activation_separation.png",
@@ -1390,7 +1390,7 @@ def plot_activation_cosine(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
     _plot_periodic_single(
         agg, periodic, seed_ids,
         metric="activation_cosine_distance",
-        title="PPO — Activation Cosine Distance Over Training\n"
+        title="PPO - Activation Cosine Distance Over Training\n"
               "(cosine dissimilarity between success/failure activation centroids)",
         ylabel="Cosine Distance",
         out_dir=out_dir, filename="ppo_periodic_activation_cosine_distance.png",
@@ -1428,7 +1428,7 @@ def plot_activation_combined(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
                  verticalalignment="top", horizontalalignment="left",
                  transform=fig.transFigure)
     ax1.set_ylabel("Euclidean Distance")
-    ax1.set_title("PPO — Activation Centroid Separation Over Training")
+    ax1.set_title("PPO - Activation Centroid Separation Over Training")
     ax2.set_ylabel("Cosine Distance")
     _apply_xaxis_millions(ax2)
 
@@ -1489,7 +1489,7 @@ def plot_rsa_alignment(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
     ax.set_ylabel("Spearman \u03c1")
     ax.set_title(
         "RSA Alignment (Spearman \u03c1 vs Ground-Truth RDM) Over Training\n"
-        "(Fighting / Resource / Crafting / Housing — items may appear in multiple groups)"
+        "(Fighting / Resource / Crafting / Housing - items may appear in multiple groups)"
     )
     _save_fig(fig, out_dir, "ppo_periodic_rsa_alignment.png", dpi)
 
@@ -1500,7 +1500,7 @@ def plot_n_success_failure(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
         metric_a="n_success", metric_b="n_failure",
         label_a="Success episodes", label_b="Failure episodes",
         color_a="#1f77b4", color_b="#d62728",
-        title="PPO — Partition Size Over Training",
+        title="PPO - Partition Size Over Training",
         ylabel="Episode Count",
         out_dir=out_dir, filename="ppo_periodic_n_success_failure.png",
         ach_steps=ach_steps, dpi=dpi,
@@ -1511,7 +1511,7 @@ def plot_cluster_n_clusters(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
     _plot_periodic_single(
         agg, periodic, seed_ids,
         metric="cluster_stats.n_clusters",
-        title="PPO — Number of Activation Clusters Over Training\n(HDBSCAN)",
+        title="PPO - Number of Activation Clusters Over Training\n(HDBSCAN)",
         ylabel="Cluster Count",
         out_dir=out_dir, filename="ppo_periodic_cluster_n_clusters.png",
         ach_steps=ach_steps, dpi=dpi,
@@ -1522,7 +1522,7 @@ def plot_cluster_noise_fraction(agg, periodic, seed_ids, ach_steps, out_dir, dpi
     _plot_periodic_single(
         agg, periodic, seed_ids,
         metric="cluster_stats.noise_fraction",
-        title="PPO — Fraction of Noise Points in Activation Clustering Over Training",
+        title="PPO - Fraction of Noise Points in Activation Clustering Over Training",
         ylabel="Noise Fraction",
         out_dir=out_dir, filename="ppo_periodic_cluster_noise_fraction.png",
         ach_steps=ach_steps, dpi=dpi,
@@ -1530,7 +1530,7 @@ def plot_cluster_noise_fraction(agg, periodic, seed_ids, ach_steps, out_dir, dpi
 
 
 def plot_episode_count(periodic, seed_ids, out_dir, dpi):
-    """Per-seed episode count vs step — NOT averaged."""
+    """Per-seed episode count vs step - NOT averaged."""
     cmap = _seed_color_map(seed_ids)
     per_seed = _per_seed_series(periodic, seed_ids, "episode")
 
@@ -1542,7 +1542,7 @@ def plot_episode_count(periodic, seed_ids, out_dir, dpi):
 
     _apply_xaxis_millions(ax)
     ax.set_ylabel("Episode Count")
-    ax.set_title("PPO — Episode Count vs Global Step (per seed)\n"
+    ax.set_title("PPO - Episode Count vs Global Step (per seed)\n"
                  "(divergence shows different episode rates across seeds)")
     ax.legend(loc="upper left")
     _save_fig(fig, out_dir, "ppo_periodic_episode_count.png", dpi)
@@ -1554,7 +1554,7 @@ def plot_threshold_bounds(agg, periodic, seed_ids, ach_steps, out_dir, dpi):
         metric_a="threshold_lower", metric_b="threshold_upper",
         label_a="Lower bound (25th pct)", label_b="Upper bound (75th pct)",
         color_a="#1f77b4", color_b="#d62728",
-        title="PPO — Dynamic Success Threshold Bounds Over Training\n"
+        title="PPO - Dynamic Success Threshold Bounds Over Training\n"
               "(EPS score percentile thresholds defining success/failure partition)",
         ylabel="EPS Score",
         out_dir=out_dir, filename="ppo_periodic_threshold_bounds.png",
@@ -1613,7 +1613,7 @@ def plot_summary_dashboard(agg, out_dir, dpi):
         for spine in ["top", "right"]:
             ax.spines[spine].set_visible(False)
 
-    fig.suptitle("PPO — Analysis Summary Dashboard (Mean ± 1 std across seeds)", fontsize=13)
+    fig.suptitle("PPO - Analysis Summary Dashboard (Mean ± 1 std across seeds)", fontsize=13)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
     _save_fig(fig, out_dir, "ppo_periodic_summary_dashboard.png", dpi)
 
@@ -1681,16 +1681,16 @@ def _plot_milestone_bar(
 def plot_all_milestone_bars(mil_agg, metric_dirs: dict[str, str], dpi):
     """metric_dirs maps metric key -> output subdirectory path."""
     specs = [
-        ("opposition_score",           "Opposition Score",                    "PPO — Opposition Score at First Achievement Unlock"),
-        ("activation_separation",      "Activation Euclidean Separation",     "PPO — Activation Separation at First Achievement Unlock"),
-        ("activation_cosine_distance", "Activation Cosine Distance",          "PPO — Activation Cosine Distance at First Achievement Unlock"),
-        ("coherence_success",          "Coherence (Success group)",           "PPO — Gradient Coherence (Success) at First Achievement Unlock"),
-        ("coherence_failure",          "Coherence (Failure group)",           "PPO — Gradient Coherence (Failure) at First Achievement Unlock"),
-        ("rsa_alignment_fighting",     "RSA Align \u03c1 (Fighting)",         "RSA Alignment — Fighting at First Achievement Unlock"),
-        ("rsa_alignment_resource",     "RSA Align \u03c1 (Resource)",         "RSA Alignment — Resource at First Achievement Unlock"),
-        ("rsa_alignment_crafting",     "RSA Align \u03c1 (Crafting)",         "RSA Alignment — Crafting at First Achievement Unlock"),
-        ("rsa_alignment_housing",      "RSA Align \u03c1 (Housing)",          "RSA Alignment — Housing at First Achievement Unlock"),
-        ("episode",                    "Episode Count at Unlock",             "PPO — Episode Count at First Achievement Unlock"),
+        ("opposition_score",           "Opposition Score",                    "PPO - Opposition Score at First Achievement Unlock"),
+        ("activation_separation",      "Activation Euclidean Separation",     "PPO - Activation Separation at First Achievement Unlock"),
+        ("activation_cosine_distance", "Activation Cosine Distance",          "PPO - Activation Cosine Distance at First Achievement Unlock"),
+        ("coherence_success",          "Coherence (Success group)",           "PPO - Gradient Coherence (Success) at First Achievement Unlock"),
+        ("coherence_failure",          "Coherence (Failure group)",           "PPO - Gradient Coherence (Failure) at First Achievement Unlock"),
+        ("rsa_alignment_fighting",     "RSA Align \u03c1 (Fighting)",         "RSA Alignment - Fighting at First Achievement Unlock"),
+        ("rsa_alignment_resource",     "RSA Align \u03c1 (Resource)",         "RSA Alignment - Resource at First Achievement Unlock"),
+        ("rsa_alignment_crafting",     "RSA Align \u03c1 (Crafting)",         "RSA Alignment - Crafting at First Achievement Unlock"),
+        ("rsa_alignment_housing",      "RSA Align \u03c1 (Housing)",          "RSA Alignment - Housing at First Achievement Unlock"),
+        ("episode",                    "Episode Count at Unlock",             "PPO - Episode Count at First Achievement Unlock"),
     ]
     for metric, xlabel, title in specs:
         subdir = metric_dirs.get(metric, metric_dirs.get("_default", ""))
@@ -1754,13 +1754,13 @@ def plot_rdm_snapshots(periodic: dict[int, list], out_dir: str, dpi: int):
             )
             _plot_rdm(
                 rdm, labels,
-                f"PPO Seed {seed_id} — RSA Representational Dissimilarity Matrix\n"
+                f"PPO Seed {seed_id} - RSA Representational Dissimilarity Matrix\n"
                 f"Step {step:,} (ep {ep:,})",
                 out_path, dpi,
             )
             label_sets.append((tuple(labels), rdm))
 
-        # Averaged RDM — only if 2+ seeds have identical label sets
+        # Averaged RDM - only if 2+ seeds have identical label sets
         from collections import Counter
         label_counts = Counter(ls for ls, _ in label_sets)
         for label_tuple, count in label_counts.items():
@@ -1771,7 +1771,7 @@ def plot_rdm_snapshots(periodic: dict[int, list], out_dir: str, dpi: int):
             out_path = os.path.join(out_dir, f"ppo_rdm_averaged_step{step:07d}.png")
             _plot_rdm(
                 avg_rdm, list(label_tuple),
-                f"PPO (Averaged across {count} seeds) — RSA RDM at Step {step:,}",
+                f"PPO (Averaged across {count} seeds) - RSA RDM at Step {step:,}",
                 out_path, dpi,
             )
             break  # Only one averaged RDM per step
@@ -1807,7 +1807,7 @@ def plot_cluster_snapshots(periodic: dict[int, list], out_dir: str, dpi: int):
             ax.set_yticklabels([f"Cluster {i+1}" for i in range(len(y))], fontsize=7)
             ax.set_xlabel("Episode Count")
             ax.set_title(
-                f"PPO Seed {seed_id} — Cluster Composition at Step {step:,} (ep {ep:,})\n"
+                f"PPO Seed {seed_id} - Cluster Composition at Step {step:,} (ep {ep:,})\n"
                 f"(top {len(sorted_clusters)} clusters by size, sorted descending)"
             )
             ax.legend(loc="lower right", fontsize=8)
@@ -1951,7 +1951,7 @@ def plot_survival_zoom(
                 fin     = np.isfinite(avg_ret)
                 ax1.plot(rel_grid[fin], avg_ret[fin],
                          color="#888888", linewidth=1.4, alpha=0.85, zorder=2,
-                         label=f"Return — mean ± std ({len(ret_arrs)} seeds)")
+                         label=f"Return - mean ± std ({len(ret_arrs)} seeds)")
                 ax1.fill_between(rel_grid[fin],
                                  (avg_ret - std_ret)[fin],
                                  (avg_ret + std_ret)[fin],
@@ -1988,7 +1988,7 @@ def plot_survival_zoom(
                 fin_m   = np.isfinite(mean_m)
                 ax2.plot(rel_grid[fin_m], mean_m[fin_m],
                          color=metric_color, linewidth=2.2, zorder=4,
-                         label=f"{metric_label} — mean (n={len(metric_arrs)})")
+                         label=f"{metric_label} - mean (n={len(metric_arrs)})")
                 ax2.fill_between(rel_grid[fin_m],
                                  (mean_m - std_m)[fin_m],
                                  (mean_m + std_m)[fin_m],
@@ -2012,7 +2012,7 @@ def plot_survival_zoom(
             ax1.xaxis.set_major_formatter(ticker.FuncFormatter(_fmt_rel))
             ax1.set_xlabel("Steps relative to first unlock")
             ax1.set_title(
-                f"PPO — '{ach.replace('_', ' ')}' First Unlock  (event-aligned)\n"
+                f"PPO - '{ach.replace('_', ' ')}' First Unlock  (event-aligned)\n"
                 f"{metric_label} vs Return  (window ±{_ZOOM_HALF // 1_000}k steps, {n_seeds_unlock} seeds)"
             )
 
@@ -2199,7 +2199,7 @@ def plot_achievement_zoom_absolute(
                 fin = np.isfinite(avg_ret)
                 ax1.plot(rel_grid[fin], avg_ret[fin],
                          color="#888888", lw=1.4, alpha=0.85, zorder=2,
-                         label=f"Return — mean ± std ({len(ret_arrs)} seeds)")
+                         label=f"Return - mean ± std ({len(ret_arrs)} seeds)")
                 ax1.fill_between(rel_grid[fin],
                                  (avg_ret - std_ret)[fin], (avg_ret + std_ret)[fin],
                                  color="#888888", alpha=0.15, zorder=1)
@@ -2212,7 +2212,7 @@ def plot_achievement_zoom_absolute(
             fin_m = np.isfinite(mean_m)
             ax2.plot(rel_grid[fin_m], mean_m[fin_m],
                      color=metric_color, lw=2.2, zorder=4,
-                     label=f"{metric_label} — mean (n={len(metric_arrs)})")
+                     label=f"{metric_label} - mean (n={len(metric_arrs)})")
             ax2.fill_between(rel_grid[fin_m],
                              (mean_m - std_m)[fin_m], (mean_m + std_m)[fin_m],
                              color=metric_color, alpha=0.15, zorder=3)
@@ -2230,7 +2230,7 @@ def plot_achievement_zoom_absolute(
             ax1.xaxis.set_major_formatter(ticker.FuncFormatter(_fmt_rel))
             ax1.set_xlabel("Steps relative to first unlock")
             ax1.set_title(
-                f"{algorithm.upper()} — '{ach.replace('_', ' ')}' First Unlock (event-aligned)\n"
+                f"{algorithm.upper()} - '{ach.replace('_', ' ')}' First Unlock (event-aligned)\n"
                 f"{metric_label} vs Return  (window ±{_ZOOM_HALF // 1_000}k steps, {n_seeds_unlock} seeds)"
             )
             safe_ach = ach.replace(".", "_")
@@ -2352,7 +2352,7 @@ def plot_achievement_zoom_relative(
         ax_a.axvline(0, color="gold", linestyle="--", lw=1.8, alpha=0.9)
         ax_a.set_ylabel("Δ Metric (relative to unlock)")
         ax_a.set_title(
-            f"{algorithm.upper()} — '{ach.replace('_', ' ')}': Metrics Relative to First Unlock\n"
+            f"{algorithm.upper()} - '{ach.replace('_', ' ')}': Metrics Relative to First Unlock\n"
             f"(window ±{_ZOOM_HALF // 1_000}k steps, {n_seeds_unlock} seeds, y=0 at unlock moment)"
         )
         if has_A:
@@ -2470,7 +2470,7 @@ def plot_weight_delta_alignment(
     """Two panels: cosine(gradient variant, Δθ) over training, for success and failure groups.
 
     Each panel shows three lines (uniform, IS-weighted, reward-weighted) ± std across seeds.
-    The key signal is whether G_IS tracks Δθ better than G_uniform — if so, the IS
+    The key signal is whether G_IS tracks Δθ better than G_uniform - if so, the IS
     reconstruction is directionally validated. Absolute cosines are expected to be low
     (Adam distortion); interpret relative differences, not magnitudes.
 
@@ -2544,14 +2544,14 @@ def plot_weight_delta_alignment(
 # shared/reporting.py's generate_report().
 
 # Colours for RQ graphs
-_C_SUCCESS   = "#1f77b4"   # blue  — success group
-_C_FAILURE   = "#d62728"   # red   — failure group
-_C_UNIFORM   = "#2c7bb6"   # dark blue  — G_uniform
-_C_IS        = "#7b2d8b"   # purple     — G_IS
-_C_REWARD    = "#c0507a"   # pink       — G_reward
-_C_POS_MOR   = "#2ca02c"   # green — positive reward subgroup
-_C_NEU_MOR   = "#1f77b4"   # blue  — neutral reward subgroup
-_C_NEG_MOR   = "#d62728"   # red   — negative reward subgroup
+_C_SUCCESS   = "#1f77b4"   # blue  - success group
+_C_FAILURE   = "#d62728"   # red   - failure group
+_C_UNIFORM   = "#2c7bb6"   # dark blue  - G_uniform
+_C_IS        = "#7b2d8b"   # purple     - G_IS
+_C_REWARD    = "#c0507a"   # pink       - G_reward
+_C_POS_MOR   = "#2ca02c"   # green - positive reward subgroup
+_C_NEU_MOR   = "#1f77b4"   # blue  - neutral reward subgroup
+_C_NEG_MOR   = "#d62728"   # red   - negative reward subgroup
 
 
 def _hex_to_lab(hex_color: str) -> tuple[float, float, float]:
@@ -2593,7 +2593,7 @@ def check_palette_ciede2000(colors: list[str], label: str, threshold: float = 25
             if de < threshold:
                 print(
                     f"  PALETTE WARNING [{label}]: {colors[i]} vs {colors[j]}"
-                    f"  ΔE76={de:.1f} < {threshold} — may be hard to distinguish"
+                    f"  ΔE76={de:.1f} < {threshold} - may be hard to distinguish"
                 )
                 ok = False
     return ok
@@ -2651,8 +2651,8 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None
     """RQ1: cos(G_uniform, G_IS) and opposition score comparison over training.
 
     Two-panel figure:
-      Top:    cos(G_uniform, G_IS) for success and failure groups — expected ~0.97–1.0
-      Bottom: Opposition score under G_uniform vs G_IS — tracks how stable the
+      Top:    cos(G_uniform, G_IS) for success and failure groups - expected ~0.97–1.0
+      Bottom: Opposition score under G_uniform vs G_IS - tracks how stable the
               success/failure differentiation is under IS re-weighting.
     """
     s_cos_steps, s_cos_vals = _rq_extract(checkpoint_results, "cos_uniform_is_success")
@@ -2667,13 +2667,13 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None
     fig.subplots_adjust(hspace=0.08)
 
     ax_top.plot(s_cos_steps, s_cos_vals, color=_C_SUCCESS, lw=2.0,
-                label="cos(G_uniform, G_IS) — Success")
+                label="cos(G_uniform, G_IS) - Success")
     ax_top.plot(f_cos_steps, f_cos_vals, color=_C_FAILURE, lw=2.0,
-                linestyle="--", label="cos(G_uniform, G_IS) — Failure")
+                linestyle="--", label="cos(G_uniform, G_IS) - Failure")
     ax_top.axhline(1.0, color="grey", linestyle=":", lw=0.8, alpha=0.6)
     ax_top.set_ylabel("Cosine Similarity")
     ax_top.set_title(
-        f"Rainbow Seed {seed} — RQ1: Directional Stability of G_uniform under IS Re-weighting"
+        f"Rainbow Seed {seed} - RQ1: Directional Stability of G_uniform under IS Re-weighting"
     )
     ax_top.set_ylim(max(0.85, min((s_cos_vals + f_cos_vals), default=0.9) - 0.02), 1.02)
     ax_top.grid(True, alpha=0.3, linestyle="--")
@@ -2719,7 +2719,7 @@ def plot_rq1_gradient_variants(checkpoint_results, out_dir, seed, ach_steps=None
 
 
 def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
-    """RQ2: cos(G_IS, G_reward) over training — how much does IS align with reward-proximal?"""
+    """RQ2: cos(G_IS, G_reward) over training - how much does IS align with reward-proximal?"""
     s_steps, s_vals = _rq_extract(checkpoint_results, "cos_is_reward_success")
     f_steps, f_vals = _rq_extract(checkpoint_results, "cos_is_reward_failure")
 
@@ -2728,14 +2728,14 @@ def plot_rq2_cos_is_reward(checkpoint_results, out_dir, seed, ach_steps=None, dp
 
     fig, ax = plt.subplots(figsize=(11, 4.5))
     ax.plot(s_steps, s_vals, color=_C_SUCCESS, lw=2.0,
-            label="cos(G_IS, G_reward) — Success")
+            label="cos(G_IS, G_reward) - Success")
     ax.plot(f_steps, f_vals, color=_C_FAILURE, lw=2.0, linestyle="--",
-            label="cos(G_IS, G_reward) — Failure")
+            label="cos(G_IS, G_reward) - Failure")
     ax.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.5)
     ax.axhline(1.0, color="grey", linestyle=":", lw=0.8, alpha=0.3)
     ax.set_ylabel("Cosine Similarity")
     ax.set_title(
-        f"Rainbow Seed {seed} — RQ2: Alignment of G_IS with Reward-Proximal Gradient (G_reward)"
+        f"Rainbow Seed {seed} - RQ2: Alignment of G_IS with Reward-Proximal Gradient (G_reward)"
     )
     _rq_fmt_millions(ax)
     ax.grid(True, alpha=0.3, linestyle="--")
@@ -2810,9 +2810,9 @@ def plot_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, ach_steps=None,
 
     ax.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.5)
     ax.set_xlabel("Gradient Coherence (Success)")
-    ax.set_ylabel("RSA Alignment — Fighting (ρ)")
+    ax.set_ylabel("RSA Alignment - Fighting (ρ)")
     ax.set_title(
-        f"Rainbow Seed {seed} — RQ3: Gradient Coherence vs Representational Structure"
+        f"Rainbow Seed {seed} - RQ3: Gradient Coherence vs Representational Structure"
     )
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
@@ -2878,7 +2878,7 @@ def plot_rq4_mora_budget(checkpoint_results, out_dir, seed, ach_steps=None, dpi=
                  alpha=0.85)
     ax.set_ylabel("Proportional Gradient Budget  (mag × count / total)")
     ax.set_title(
-        f"Rainbow Seed {seed} — RQ4: MORA Weighted Gradient Budget by Reward Sign\n"
+        f"Rainbow Seed {seed} - RQ4: MORA Weighted Gradient Budget by Reward Sign\n"
         "Neutral transitions collectively rival positive despite low per-transition magnitude"
     )
     _rq_fmt_millions(ax)
@@ -2944,7 +2944,7 @@ def plot_rq4_mora_magnitude_log(checkpoint_results, out_dir, seed, ach_steps=Non
     ax.set_yscale("log")
     ax.set_ylabel("Gradient Magnitude  (log scale)")
     ax.set_title(
-        f"Rainbow Seed {seed} — RQ4: Per-Transition Gradient Magnitude by Reward Sign\n"
+        f"Rainbow Seed {seed} - RQ4: Per-Transition Gradient Magnitude by Reward Sign\n"
         "Log scale reveals the ~10× gap without flattening the neutral baseline"
     )
     _rq_fmt_millions(ax)
@@ -2972,7 +2972,7 @@ def plot_rq4_mora_magnitude_log(checkpoint_results, out_dir, seed, ach_steps=Non
 
 
 def plot_rq4_mora_opposition(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
-    """RQ4: MORA opposition scores over training — three key comparisons in one panel.
+    """RQ4: MORA opposition scores over training - three key comparisons in one panel.
 
     Shows:
       - Pos vs Neutral: the directional conflict between reward moments and
@@ -3013,7 +3013,7 @@ def plot_rq4_mora_opposition(checkpoint_results, out_dir, seed, ach_steps=None, 
     ax.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
     ax.set_ylabel("Opposition Score  (cosine similarity)")
     ax.set_title(
-        f"Rainbow Seed {seed} — RQ4: MORA Cross-Group Opposition Scores\n"
+        f"Rainbow Seed {seed} - RQ4: MORA Cross-Group Opposition Scores\n"
         "Negative Pos vs Neutral = reward moments and exploratory steps pull in opposite directions"
     )
     _rq_fmt_millions(ax)
@@ -3105,7 +3105,7 @@ def plot_rq4_mora_opposition_separate(
         ax.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
         ax.set_ylabel("Opposition Score  (cosine similarity)")
         ax.set_title(
-            f"Rainbow Seed {seed} — RQ4 MORA: {label}\n"
+            f"Rainbow Seed {seed} - RQ4 MORA: {label}\n"
             f"{subtitle}"
         )
         _rq_fmt_millions(ax)
@@ -3153,13 +3153,13 @@ def plot_rq4_mora_opposition_separate_avg(
 
         fig, ax = plt.subplots(figsize=(11, 4.5))
         ax.plot(step_grid[fin], mean[fin], color=color, lw=2.0,
-                label=f"{label} — mean (n={n} seeds)")
+                label=f"{label} - mean (n={n} seeds)")
         ax.fill_between(step_grid[fin], (mean - std)[fin], (mean + std)[fin],
                         color=color, alpha=0.2, label="± 1 std")
         ax.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
         ax.set_ylabel("Opposition Score  (cosine similarity)")
         ax.set_title(
-            f"Rainbow Averaged ({n} seeds) — RQ4 MORA: {label}\n"
+            f"Rainbow Averaged ({n} seeds) - RQ4 MORA: {label}\n"
             f"{subtitle}"
         )
         _rq_fmt_millions(ax)
@@ -3198,7 +3198,7 @@ def plot_ppo_rq1_opposition(checkpoint_results, out_dir, seed, ach_steps=None, d
     """RQ1 (PPO): Opposition score over training.
 
     PPO has no G_IS analog, so this is G_uniform opposition score only.
-    The low magnitude and high variance is itself the finding — contrasts
+    The low magnitude and high variance is itself the finding - contrasts
     sharply with Rainbow's stable 0.7–0.98 range.
     """
     steps, vals = _rq_extract(checkpoint_results, "opposition_score")
@@ -3211,7 +3211,7 @@ def plot_ppo_rq1_opposition(checkpoint_results, out_dir, seed, ach_steps=None, d
     ax.axhline(1.0, color="grey", linestyle=":", lw=0.8, alpha=0.3)
     ax.set_ylabel("Opposition Score  (cosine similarity)")
     ax.set_title(
-        f"PPO Seed {seed} — RQ1: G_uniform Opposition Score Over Training\n"
+        f"PPO Seed {seed} - RQ1: G_uniform Opposition Score Over Training\n"
         "Low magnitude and high variance contrasts with Rainbow's stable 0.7–0.98"
     )
     _rq_fmt_millions(ax)
@@ -3241,8 +3241,8 @@ def plot_ppo_rq1_opposition(checkpoint_results, out_dir, seed, ach_steps=None, d
 def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ3 (PPO): Two-panel activation separation + RSA alignment co-trajectory.
 
-    Top panel: activation separation — grows from ~0.8 to 3–5 over training.
-    Bottom panel: RSA alignment (single ρ) — starts negative, transitions to
+    Top panel: activation separation - grows from ~0.8 to 3–5 over training.
+    Bottom panel: RSA alignment (single ρ) - starts negative, transitions to
     positive (~0.15–0.35) by mid/late training.  Seeing both together captures
     the core RQ3 story for PPO.
     """
@@ -3259,7 +3259,7 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, ach_steps=Non
                 label="Activation separation (Euclidean centroid distance)")
     ax_top.set_ylabel("Activation Separation")
     ax_top.set_title(
-        f"PPO Seed {seed} — RQ3: Representational Emergence\n"
+        f"PPO Seed {seed} - RQ3: Representational Emergence\n"
         "Activation separation (top) and RSA alignment ρ (bottom) over training"
     )
     ax_top.grid(True, alpha=0.3, linestyle="--")
@@ -3305,7 +3305,7 @@ def plot_ppo_rq3_activation_rsa(checkpoint_results, out_dir, seed, ach_steps=Non
 def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, ach_steps=None, dpi=150):
     """RQ3 (PPO): Gradient coherence (success + failure) over training.
 
-    Shows how low PPO coherence is (typically 0.05–0.4) throughout training —
+    Shows how low PPO coherence is (typically 0.05–0.4) throughout training -
     contrasts with Rainbow's 0.83–0.97.  Both success and failure shown to
     reveal whether either group maintains more consistent gradient direction.
     Also plots gradient magnitude success vs failure for context.
@@ -3322,13 +3322,13 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, ach_steps=None, dp
     fig.subplots_adjust(hspace=0.08)
 
     ax_top.plot(s_coh_steps, s_coh_vals, color=_C_SUCCESS, lw=2.0,
-                label="Coherence — Success")
+                label="Coherence - Success")
     ax_top.plot(f_coh_steps, f_coh_vals, color=_C_FAILURE, lw=2.0,
-                linestyle="--", label="Coherence — Failure")
+                linestyle="--", label="Coherence - Failure")
     ax_top.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.4)
     ax_top.set_ylabel("Gradient Coherence")
     ax_top.set_title(
-        f"PPO Seed {seed} — RQ3: Gradient Coherence and Magnitude Over Training"
+        f"PPO Seed {seed} - RQ3: Gradient Coherence and Magnitude Over Training"
     )
     ax_top.grid(True, alpha=0.3, linestyle="--")
     ax_top.spines["top"].set_visible(False)
@@ -3336,10 +3336,10 @@ def plot_ppo_rq3_coherence(checkpoint_results, out_dir, seed, ach_steps=None, dp
 
     if s_mag_vals:
         ax_bot.plot(s_mag_steps, s_mag_vals, color=_C_SUCCESS, lw=2.0,
-                    label="Grad Mag — Success")
+                    label="Grad Mag - Success")
     if f_mag_vals:
         ax_bot.plot(f_mag_steps, f_mag_vals, color=_C_FAILURE, lw=2.0,
-                    linestyle="--", label="Grad Mag — Failure")
+                    linestyle="--", label="Grad Mag - Failure")
     ax_bot.set_ylabel("Gradient Magnitude")
     _rq_fmt_millions(ax_bot)
     ax_bot.grid(True, alpha=0.3, linestyle="--")
@@ -3422,7 +3422,7 @@ def plot_ppo_rq3_coherence_vs_rsa(checkpoint_results, out_dir, seed, ach_steps=N
     ax.set_xlabel("Gradient Coherence (Success)")
     ax.set_ylabel("RSA Alignment (ρ)")
     ax.set_title(
-        f"PPO Seed {seed} — RQ3: Gradient Coherence vs Representational Structure"
+        f"PPO Seed {seed} - RQ3: Gradient Coherence vs Representational Structure"
     )
     ax.grid(True, alpha=0.3, linestyle="--")
     ax.spines["top"].set_visible(False)
@@ -3511,14 +3511,14 @@ def plot_ppo_rq1_opposition_avg(all_seed_results, out_dir, ach_steps=None, dpi=1
 
     fig, ax = plt.subplots(figsize=(11, 4.5))
     ax.plot(step_grid[fin], mean[fin], color=_C_UNIFORM, lw=2.0,
-            label=f"G_uniform opposition score — mean (n={n} seeds)")
+            label=f"G_uniform opposition score - mean (n={n} seeds)")
     ax.fill_between(step_grid[fin], (mean - std)[fin], (mean + std)[fin],
                     color=_C_UNIFORM, alpha=0.2, label="± 1 std")
     ax.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.5)
     ax.axhline(1.0, color="grey", linestyle=":", lw=0.8, alpha=0.3)
     ax.set_ylabel("Opposition Score  (cosine similarity)")
     ax.set_title(
-        f"PPO Averaged ({n} seeds) — RQ1: G_uniform Opposition Score Over Training\n"
+        f"PPO Averaged ({n} seeds) - RQ1: G_uniform Opposition Score Over Training\n"
         "Low magnitude and high variance contrasts with Rainbow's stable 0.7–0.98"
     )
     _rq_fmt_millions(ax)
@@ -3561,14 +3561,14 @@ def plot_ppo_rq3_activation_rsa_avg(all_seed_results, out_dir, ach_steps=None, d
     fig.subplots_adjust(hspace=0.08)
 
     ax_top.plot(step_grid[fin_sep], sep_mean[fin_sep], color=C_INDIGO, lw=2.0,
-                label=f"Activation separation — mean (n={sep_n})")
+                label=f"Activation separation - mean (n={sep_n})")
     ax_top.fill_between(step_grid[fin_sep],
                         (sep_mean - sep_std)[fin_sep],
                         (sep_mean + sep_std)[fin_sep],
                         color=C_INDIGO, alpha=0.2, label="± 1 std")
     ax_top.set_ylabel("Activation Separation")
     ax_top.set_title(
-        f"PPO Averaged ({sep_n} seeds) — RQ3: Representational Emergence\n"
+        f"PPO Averaged ({sep_n} seeds) - RQ3: Representational Emergence\n"
         "Activation separation (top) and RSA alignment ρ (bottom) over training"
     )
     ax_top.grid(True, alpha=0.3, linestyle="--")
@@ -3578,7 +3578,7 @@ def plot_ppo_rq3_activation_rsa_avg(all_seed_results, out_dir, ach_steps=None, d
     fin_rsa = np.isfinite(rsa_mean)
     if fin_rsa.any():
         ax_bot.plot(step_grid[fin_rsa], rsa_mean[fin_rsa], color=C_TEAL, lw=2.0,
-                    label=f"RSA alignment ρ — mean (n={rsa_n})")
+                    label=f"RSA alignment ρ - mean (n={rsa_n})")
         ax_bot.fill_between(step_grid[fin_rsa],
                             (rsa_mean - rsa_std)[fin_rsa],
                             (rsa_mean + rsa_std)[fin_rsa],
@@ -3633,21 +3633,21 @@ def plot_ppo_rq3_coherence_avg(all_seed_results, out_dir, ach_steps=None, dpi=15
     fig.subplots_adjust(hspace=0.08)
 
     ax_top.plot(step_grid[fin_sc], sc_mean[fin_sc], color=_C_SUCCESS, lw=2.0,
-                label=f"Coherence Success — mean (n={sc_n})")
+                label=f"Coherence Success - mean (n={sc_n})")
     ax_top.fill_between(step_grid[fin_sc],
                         (sc_mean - sc_std)[fin_sc], (sc_mean + sc_std)[fin_sc],
                         color=_C_SUCCESS, alpha=0.2)
     fin_fc = np.isfinite(fc_mean)
     if fin_fc.any():
         ax_top.plot(step_grid[fin_fc], fc_mean[fin_fc], color=_C_FAILURE, lw=2.0,
-                    linestyle="--", label=f"Coherence Failure — mean (n={fc_n})")
+                    linestyle="--", label=f"Coherence Failure - mean (n={fc_n})")
         ax_top.fill_between(step_grid[fin_fc],
                             (fc_mean - fc_std)[fin_fc], (fc_mean + fc_std)[fin_fc],
                             color=_C_FAILURE, alpha=0.15)
     ax_top.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.4)
     ax_top.set_ylabel("Gradient Coherence")
     ax_top.set_title(
-        f"PPO Averaged ({sc_n} seeds) — RQ3: Gradient Coherence and Magnitude Over Training"
+        f"PPO Averaged ({sc_n} seeds) - RQ3: Gradient Coherence and Magnitude Over Training"
     )
     ax_top.grid(True, alpha=0.3, linestyle="--")
     ax_top.spines["top"].set_visible(False)
@@ -3656,14 +3656,14 @@ def plot_ppo_rq3_coherence_avg(all_seed_results, out_dir, ach_steps=None, dpi=15
     fin_sm = np.isfinite(sm_mean)
     if fin_sm.any():
         ax_bot.plot(step_grid[fin_sm], sm_mean[fin_sm], color=_C_SUCCESS, lw=2.0,
-                    label=f"Grad Mag Success — mean (n={sm_n})")
+                    label=f"Grad Mag Success - mean (n={sm_n})")
         ax_bot.fill_between(step_grid[fin_sm],
                             (sm_mean - sm_std)[fin_sm], (sm_mean + sm_std)[fin_sm],
                             color=_C_SUCCESS, alpha=0.2)
     fin_fm = np.isfinite(fm_mean)
     if fin_fm.any():
         ax_bot.plot(step_grid[fin_fm], fm_mean[fin_fm], color=_C_FAILURE, lw=2.0,
-                    linestyle="--", label=f"Grad Mag Failure — mean (n={fm_n})")
+                    linestyle="--", label=f"Grad Mag Failure - mean (n={fm_n})")
         ax_bot.fill_between(step_grid[fin_fm],
                             (fm_mean - fm_std)[fin_fm], (fm_mean + fm_std)[fin_fm],
                             color=_C_FAILURE, alpha=0.15)
@@ -3741,7 +3741,7 @@ def plot_ppo_rq3_coherence_vs_rsa_avg(all_seed_results, out_dir, ach_steps=None,
     ax.set_xlabel("Gradient Coherence (Success)")
     ax.set_ylabel("RSA Alignment (ρ)")
     ax.set_title(
-        f"PPO Averaged ({n_seeds} seeds) — RQ3: Coherence vs Representational Structure\n"
+        f"PPO Averaged ({n_seeds} seeds) - RQ3: Coherence vs Representational Structure\n"
         f"All seeds pooled ({len(points)} checkpoints)"
     )
     ax.grid(True, alpha=0.3, linestyle="--")
@@ -3801,8 +3801,8 @@ def plot_rq1_gradient_variants_avg(all_seed_results, out_dir, ach_steps=None, dp
     fig.subplots_adjust(hspace=0.08)
 
     for mean, std, color, ls, label in [
-        (sc_mean, sc_std, _C_SUCCESS, "-",  f"cos(G_uniform, G_IS) — Success (n={sc_n})"),
-        (fc_mean, fc_std, _C_FAILURE, "--", "cos(G_uniform, G_IS) — Failure"),
+        (sc_mean, sc_std, _C_SUCCESS, "-",  f"cos(G_uniform, G_IS) - Success (n={sc_n})"),
+        (fc_mean, fc_std, _C_FAILURE, "--", "cos(G_uniform, G_IS) - Failure"),
     ]:
         fin = np.isfinite(mean)
         if fin.any():
@@ -3811,7 +3811,7 @@ def plot_rq1_gradient_variants_avg(all_seed_results, out_dir, ach_steps=None, dp
     ax_top.axhline(1.0, color="grey", linestyle=":", lw=0.8, alpha=0.6)
     ax_top.set_ylabel("Cosine Similarity")
     ax_top.set_title(
-        f"Rainbow Averaged ({sc_n} seeds) — RQ1: Directional Stability of G_uniform under IS Re-weighting"
+        f"Rainbow Averaged ({sc_n} seeds) - RQ1: Directional Stability of G_uniform under IS Re-weighting"
     )
     ax_top.legend(fontsize=9, loc="lower right")
     ax_top.grid(True, alpha=0.3, linestyle="--")
@@ -3867,8 +3867,8 @@ def plot_rq2_cos_is_reward_avg(all_seed_results, out_dir, ach_steps=None, dpi=15
 
     fig, ax = plt.subplots(figsize=(11, 4.5))
     for mean, std, color, ls, label in [
-        (s_mean, s_std, _C_SUCCESS, "-",  f"cos(G_IS, G_reward) — Success (n={s_n})"),
-        (f_mean, f_std, _C_FAILURE, "--", "cos(G_IS, G_reward) — Failure"),
+        (s_mean, s_std, _C_SUCCESS, "-",  f"cos(G_IS, G_reward) - Success (n={s_n})"),
+        (f_mean, f_std, _C_FAILURE, "--", "cos(G_IS, G_reward) - Failure"),
     ]:
         fin = np.isfinite(mean)
         if fin.any():
@@ -3878,7 +3878,7 @@ def plot_rq2_cos_is_reward_avg(all_seed_results, out_dir, ach_steps=None, dpi=15
     ax.axhline(1.0, color="grey", linestyle=":", lw=0.8, alpha=0.3)
     ax.set_ylabel("Cosine Similarity")
     ax.set_title(
-        f"Rainbow Averaged ({s_n} seeds) — RQ2: Alignment of G_IS with Reward-Proximal Gradient"
+        f"Rainbow Averaged ({s_n} seeds) - RQ2: Alignment of G_IS with Reward-Proximal Gradient"
     )
     _rq_fmt_millions(ax)
     ax.grid(True, alpha=0.3, linestyle="--")
@@ -3946,9 +3946,9 @@ def plot_rq3_coherence_vs_rsa_avg(all_seed_results, out_dir, ach_steps=None, dpi
         ax.legend(fontsize=8)
     ax.axhline(0.0, color="grey", linestyle=":", lw=0.8, alpha=0.5)
     ax.set_xlabel("Gradient Coherence (Success)")
-    ax.set_ylabel("RSA Alignment — Fighting (ρ)")
+    ax.set_ylabel("RSA Alignment - Fighting (ρ)")
     ax.set_title(
-        f"Rainbow Averaged ({n_seeds} seeds) — RQ3: Coherence vs Representational Structure\n"
+        f"Rainbow Averaged ({n_seeds} seeds) - RQ3: Coherence vs Representational Structure\n"
         f"All seeds pooled ({len(points)} checkpoints)"
     )
     ax.grid(True, alpha=0.3, linestyle="--")
@@ -4059,7 +4059,7 @@ def plot_rq4_mora_budget_avg(all_seed_results, out_dir, ach_steps=None, dpi=150)
                  colors=[_C_POS_MOR, _C_NEG_MOR, _C_NEU_MOR], alpha=0.85)
     ax.set_ylabel("Proportional Gradient Budget  (mag × count / total)")
     ax.set_title(
-        f"Rainbow Averaged ({n} seeds) — RQ4: MORA Weighted Gradient Budget by Reward Sign"
+        f"Rainbow Averaged ({n} seeds) - RQ4: MORA Weighted Gradient Budget by Reward Sign"
     )
     _rq_fmt_millions(ax)
     ax.set_ylim(0, 1)
@@ -4111,7 +4111,7 @@ def plot_rq4_mora_magnitude_log_avg(all_seed_results, out_dir, ach_steps=None, d
     ax.set_yscale("log")
     ax.set_ylabel("Gradient Magnitude  (log scale)")
     ax.set_title(
-        f"Rainbow Averaged ({n} seeds) — RQ4: Per-Transition Gradient Magnitude by Reward Sign"
+        f"Rainbow Averaged ({n} seeds) - RQ4: Per-Transition Gradient Magnitude by Reward Sign"
     )
     _rq_fmt_millions(ax)
     ax.grid(True, alpha=0.3, linestyle="--", which="both")
@@ -4170,7 +4170,7 @@ def plot_rq4_mora_opposition_avg(all_seed_results, out_dir, ach_steps=None, dpi=
     ax.axhline(0.0, color="grey", linestyle="-", lw=1.0, alpha=0.4)
     ax.set_ylabel("Opposition Score  (cosine similarity)")
     ax.set_title(
-        f"Rainbow Averaged ({n_seeds} seeds) — RQ4: MORA Cross-Group Opposition Scores"
+        f"Rainbow Averaged ({n_seeds} seeds) - RQ4: MORA Cross-Group Opposition Scores"
     )
     _rq_fmt_millions(ax)
     ax.grid(True, alpha=0.3, linestyle="--")
@@ -4250,7 +4250,7 @@ def generate_rq_graphs(checkpoint_results, seed_root, seed, dpi=150):
         dpi:                output resolution.
 
     Returns:
-        dict {key: relative_path_from_seed_root}  — only includes graphs that
+        dict {key: relative_path_from_seed_root}  - only includes graphs that
         actually produced output (skips any with insufficient data).
     """
     out_dir = os.path.join(seed_root, "graphs", "rq")

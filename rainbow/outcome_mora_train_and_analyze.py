@@ -1,4 +1,4 @@
-"""Outcome-Conditioned Atom Weighting + MORA — comparison experiment.
+﻿"""Outcome-Conditioned Atom Weighting + MORA - comparison experiment.
 
 Runs a 2×2 grid of Rainbow variants:
 
@@ -188,7 +188,7 @@ def _plot_return_comparison(
 
     ax.set_xlabel("Episode (smoothed)")
     ax.set_ylabel("Episode Return")
-    ax.set_title("Outcome-Conditioned Atom Weighting + MORA — Episode Return")
+    ax.set_title("Outcome-Conditioned Atom Weighting + MORA - Episode Return")
     ax.legend(loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()

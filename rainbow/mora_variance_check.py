@@ -1,4 +1,4 @@
-"""One-off MORA subsampling variance check.
+﻿"""One-off MORA subsampling variance check.
 
 Runs MoR 3x at two checkpoints with independent random seeds and reports
 the coefficient of variation (CV = std/mean) of the MORA ratio
@@ -42,7 +42,7 @@ def _mora_ratio_one_run(ckpt_path, n_episodes, device, rng_seed):
         )
         success_eps, failure_eps, _ = partition(episodes, eps_scores)
         if not success_eps or not failure_eps:
-            print("  [warn] empty partition — skipping run")
+            print("  [warn] empty partition - skipping run")
             return None
 
         online_net, target_net, _, _, args_ns = load_rainbow_nets(ckpt_path, device=device)
@@ -86,7 +86,7 @@ def _check_one_ckpt(ckpt_path, n_episodes, device, label):
             print("    MORA ratio = None (skipped)")
 
     if len(ratios) < 2:
-        print("  Insufficient valid runs — cannot compute variance")
+        print("  Insufficient valid runs - cannot compute variance")
         return
 
     arr  = np.array(ratios)

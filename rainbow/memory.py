@@ -1,4 +1,4 @@
-# Adapted from Rainbow/memory.py for Crafter (64x64 RGB, history_length=3 model channels).
+﻿# Adapted from Rainbow/memory.py for Crafter (64x64 RGB, history_length=3 model channels).
 # Frame shape changed (84,84) → (3,64,64); temporal depth fixed to 1 (history_length=3
 # is model input channels, not temporal stacking) to avoid blank-mask mangling RGB.
 import numpy as np
@@ -99,7 +99,7 @@ class ReplayMemory():
     self.priority_weight = args.priority_weight  # Initial importance sampling weight β, annealed to 1 over course of training
     self.priority_exponent = args.priority_exponent
     self.t = 0  # Internal episode timestep counter
-    # Fixed temporal depth of 1 — model history_length (3) is input channels, not time steps.
+    # Fixed temporal depth of 1 - model history_length (3) is input channels, not time steps.
     self.history = 1
     self.n_step_scaling = torch.tensor([self.discount ** i for i in range(self.n)], dtype=torch.float32, device=self.device)  # Discount-scaling vector for n-step returns
     self.transitions = SegmentTree(capacity)  # Store transitions in a wrap-around cyclic buffer within a sum tree for querying priorities
@@ -117,7 +117,7 @@ class ReplayMemory():
     Called at episode end (train.py) after the episode is classified.
     label: 1 = success, -1 = failure, 0 = neutral.
     Positions that have been evicted (wrapped past capacity) are silently ignored
-    because the modulo maps them into still-valid slots — the worst case is a
+    because the modulo maps them into still-valid slots - the worst case is a
     stale label on an already-overwritten slot, which is harmless.
     """
     self._outcome_label[buf_positions % self.capacity] = label
@@ -216,7 +216,7 @@ class ReplayMemory():
   def save_buffer(self, path: str) -> None:
     """Save replay buffer state to a compressed npz file.
 
-    Saves only the essential arrays — data, sum_tree, scalars — not the device
+    Saves only the essential arrays - data, sum_tree, scalars - not the device
     or hyperparams (those come from args on reload). Compressed with zlib; a full
     500k-transition buffer (uint8 RGB frames) typically compresses to ~400-600 MB.
     """

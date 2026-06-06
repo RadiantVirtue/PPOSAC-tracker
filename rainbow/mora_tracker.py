@@ -1,4 +1,4 @@
-"""MORA-Informed Priority Tracker for Rainbow DQN.
+﻿"""MORA-Informed Priority Tracker for Rainbow DQN.
 
 Implements the gradient-coherence-based priority modifier described in
 dissertation Section 8.2.2 (Eq 8.1):
@@ -11,7 +11,7 @@ G_{r=0 in success} is the mean gradient of preparatory (r=0) transitions
 within the last k successful episodes.  G_{failure} is the mean gradient of
 all transitions in the last k failed episodes.  The modifier is highest (≈1+ε)
 when preparatory transitions oppose the failure gradient, and lowest (≈ε) when
-they are most aligned with it — directly targeting the preparatory-failure
+they are most aligned with it - directly targeting the preparatory-failure
 alignment identified in the MORA analysis rather than the internal r>0/r≤0
 class opposition used in earlier formulations.
 
@@ -55,7 +55,7 @@ class MORAPriorityTracker:
     Parameters
     ----------
     k : int
-        Rolling window size — number of past successful (and failed) episodes
+        Rolling window size - number of past successful (and failed) episodes
         whose mean gradients are averaged to form G_success / G_failure.
     epsilon : float
         Floor added to the modifier so priorities never collapse to zero.
@@ -89,7 +89,7 @@ class MORAPriorityTracker:
         self._preparatory_grads: deque = deque(maxlen=k)
         self._failure_grads: deque = deque(maxlen=k)
 
-        # Running sum for current episode — all transitions (used for failure classification).
+        # Running sum for current episode - all transitions (used for failure classification).
         self._episode_accum: Optional[torch.Tensor] = None
         self._episode_n: int = 0  # number of learn() calls in current episode
 
@@ -118,8 +118,8 @@ class MORAPriorityTracker:
     ) -> None:
         """Accumulate one learn()-step gradient into the current episode sums.
 
-        grad_flat     — 1-D CPU tensor of μ-parameters, all transitions (σ excluded).
-        grad_flat_r0  — same shape, but computed from r=0 transitions only via a
+        grad_flat     - 1-D CPU tensor of μ-parameters, all transitions (σ excluded).
+        grad_flat_r0  - same shape, but computed from r=0 transitions only via a
                         separate masked backward; None if the batch had no r=0 transitions.
         """
         g = grad_flat.cpu()
@@ -182,11 +182,11 @@ class MORAPriorityTracker:
             elif ep_return <= low_thresh:
                 # Failure: push the all-transition gradient.
                 self._failure_grads.append(mean_grad_all)
-            # else: middle band — discard
+            # else: middle band - discard
 
         # Recompute m only when both sides have data.
         # c_buffer = cos(G_{r=0 in success}, G_failure): high when preparatory
-        # transitions align with failure — modifier then suppresses them most.
+        # transitions align with failure - modifier then suppresses them most.
         if self._preparatory_grads and self._failure_grads:
             G_prep = torch.stack(list(self._preparatory_grads)).mean(dim=0)
             G_f = torch.stack(list(self._failure_grads)).mean(dim=0)
@@ -281,7 +281,7 @@ class OutcomeTracker:
         self._recent_returns.append(ep_return)
         recent = list(self._recent_returns)
         if len(recent) < 2:
-            return 0  # insufficient history — treat as neutral
+            return 0  # insufficient history - treat as neutral
         low_thresh = float(np.percentile(recent, self.percentile_x))
         high_thresh = float(np.percentile(recent, 100 - self.percentile_x))
         if ep_return >= high_thresh:

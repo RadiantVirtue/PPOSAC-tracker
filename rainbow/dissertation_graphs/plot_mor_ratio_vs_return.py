@@ -1,6 +1,6 @@
-"""dissertation_graphs/rainbow/plot_mor_ratio_vs_return.py
+﻿"""dissertation_graphs/rainbow/plot_mor_ratio_vs_return.py
 
-Fig 7.10 — Rainbow MoR magnitude ratio (r>0 / r=0) over training.
+Fig 7.10 - Rainbow MoR magnitude ratio (r>0 / r=0) over training.
 
 Single panel, log y-axis.  Shows mean ± 1 std across seeds plus individual
 seed lines, with a dashed reference line at 9× and achievement markers.

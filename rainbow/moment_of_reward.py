@@ -1,4 +1,4 @@
-"""Moment of Reward Analysis for Rainbow DQN (Crafter).
+﻿"""Moment of Reward Analysis for Rainbow DQN (Crafter).
 
 Sub-partitions a group of episodes by reward sign and computes per-subgroup
 gradient metrics using indicator-weighted Bellman loss on intact full episodes.
@@ -6,10 +6,10 @@ gradient metrics using indicator-weighted Bellman loss on intact full episodes.
 Answers: does Rainbow's learning signal over-prioritise immediate reward
 transitions (r > 0) relative to neutral preparatory steps (r = 0)?
 
-Key design choice — indicator-weighted gradients (not pseudo-episodes):
+Key design choice - indicator-weighted gradients (not pseudo-episodes):
     For each episode, the full per-transition loss (T,) is computed once via
     _forward_per_loss. For each sign group s, we backpropagate the weighted
-    scalar (indicator_s / n_s * per_loss).sum() — three backward passes per
+    scalar (indicator_s / n_s * per_loss).sum() - three backward passes per
     episode, retain_graph for all but the last active group.
 
     This avoids the pseudo-episode artefact of the previous _filter_by_reward
@@ -47,7 +47,7 @@ def _compute_sign_indicator_gradients(online_net, episodes, device, target_net, 
                                        max_episodes=None, track_coherence=False):
     """Compute per-reward-sign mean gradients via indicator-weighted Bellman loss.
 
-    For each intact episode: calls _forward_per_loss (no torch.no_grad() wrapper —
+    For each intact episode: calls _forward_per_loss (no torch.no_grad() wrapper -
     the online_net forward builds the computation graph), then for each non-empty
     sign group s backpropagates (indicator_s / n_s * per_loss).sum().
 
@@ -57,12 +57,12 @@ def _compute_sign_indicator_gradients(online_net, episodes, device, target_net, 
 
     Args:
         online_net:       DQN online network (should be in eval() mode).
-        episodes:         list of EpisodeData — intact full episodes (success or failure).
+        episodes:         list of EpisodeData - intact full episodes (success or failure).
         device:           torch device string.
         target_net:       DQN target network (frozen).
         args_ns:          argparse.Namespace with atoms, V_min, V_max, discount, multi_step.
         max_episodes:     if set, randomly subsample this many episodes before processing.
-                          The gradient is still per-transition normalized — subsampling
+                          The gradient is still per-transition normalized - subsampling
                           reduces variance slightly but does not bias the mean estimate.
         track_coherence:  if True, capture per-episode gradient dicts for coherence
                           computation (expensive: O(n) allocations + O(n²) cosines later).
@@ -129,7 +129,7 @@ def _compute_sign_indicator_gradients(online_net, episodes, device, target_net, 
         if len(ep.rewards) < 2:
             continue  # skip degenerate episodes (same guard as compute_group_gradient)
 
-        # Full per-transition Bellman loss — gradient-tracked (no no_grad wrapper)
+        # Full per-transition Bellman loss - gradient-tracked (no no_grad wrapper)
         per_loss = _forward_per_loss(
             ep, online_net, target_net,
             support, Vmin, Vmax, delta_z, atoms, gamma, n, device
@@ -179,7 +179,7 @@ def _compute_sign_indicator_gradients(online_net, episodes, device, target_net, 
                     f"OnlineGradientAggregator.accumulate() semantics changed for "
                     f"'{name}': sum_grads is no longer a pure running sum. "
                     "Per-transition normalization in _compute_sign_indicator_gradients "
-                    "is broken — revisit this function."
+                    "is broken - revisit this function."
                 )
             break  # one sign group is enough
 
@@ -206,11 +206,11 @@ def run_moment_of_reward_analysis(
 ):
     """Sub-partition episodes by reward sign and compute gradient metrics.
 
-    Uses indicator-weighted gradients on intact full episodes — no pseudo-episodes.
+    Uses indicator-weighted gradients on intact full episodes - no pseudo-episodes.
 
     Args:
         online_net:          DQN online network (frozen weights).
-        episodes:            list of EpisodeData — the episode group to analyse
+        episodes:            list of EpisodeData - the episode group to analyse
                              (typically the success or failure partition).
         raw_failure_grad:    optional mean gradient dict for the cross-group
                              comparison (pass the failure-group gradient when
@@ -228,7 +228,7 @@ def run_moment_of_reward_analysis(
         dict with 15 keys (all float | int | None, JSON-serializable).
     """
     if target_net is None or args_ns is None:
-        print("  MOR: target_net or args_ns missing — skipping")
+        print("  MOR: target_net or args_ns missing - skipping")
         return None
 
     sign_grads = _compute_sign_indicator_gradients(
@@ -239,13 +239,13 @@ def run_moment_of_reward_analysis(
     raw_neu = sign_grads["neu"]["raw"]
     raw_neg = sign_grads["neg"]["raw"]
 
-    # Count transitions by reward sign directly — no filtering artefact
+    # Count transitions by reward sign directly - no filtering artefact
     n_pos = int(sum((ep.rewards > 0).sum().item() for ep in episodes))
     n_neu = int(sum((ep.rewards == 0).sum().item() for ep in episodes))
     n_neg = int(sum((ep.rewards < 0).sum().item() for ep in episodes))
 
     print(
-        f"  MOR split — positive: {n_pos} transitions, "
+        f"  MOR split - positive: {n_pos} transitions, "
         f"neutral: {n_neu}, negative: {n_neg}"
     )
 
@@ -278,16 +278,16 @@ def run_moment_of_reward_analysis(
 
 
 # Colour scheme for MoR subgroups
-_C_POS = "#2ca02c"   # positive reward — green
-_C_NEU = "#1f77b4"   # neutral reward  — blue
-_C_NEG = "#d62728"   # negative reward — red
+_C_POS = "#2ca02c"   # positive reward - green
+_C_NEU = "#1f77b4"   # neutral reward  - blue
+_C_NEG = "#d62728"   # negative reward - red
 
 
 def plot_moment_of_reward(mor_records: list, out_dir: str, dpi: int = 150):
     """Plot Moment of Reward metrics over training steps.
 
     Args:
-        mor_records: list of (step, mor_dict) pairs — one per analysis checkpoint.
+        mor_records: list of (step, mor_dict) pairs - one per analysis checkpoint.
                      mor_dict is the "moment_of_reward" sub-dict from the analysis JSON.
         out_dir:     directory to write PNG files.
         dpi:         output resolution.

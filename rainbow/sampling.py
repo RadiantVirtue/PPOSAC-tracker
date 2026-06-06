@@ -1,4 +1,4 @@
-"""Rainbow evaluation and episode partitioning (Crafter).
+﻿"""Rainbow evaluation and episode partitioning (Crafter).
 
 Adapted from sac/sampling.py. Key differences:
   - Loads DQN (online + target) from rich checkpoint instead of DiscreteActor
@@ -99,7 +99,7 @@ def evaluate_frozen_policy(
     Returns:
         episodes:                  list of EpisodeData namedtuples
         eps_scores:                list of float EPS scores (one per episode)
-        episodes_with_transitions: list of (EpisodeData, {ach: step_idx}) for RSA —
+        episodes_with_transitions: list of (EpisodeData, {ach: step_idx}) for RSA -
                                    step_idx is the first step within the episode where
                                    that achievement was newly unlocked.
     """

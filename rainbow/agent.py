@@ -1,4 +1,4 @@
-# Adapted from Rainbow/agent.py.
+﻿# Adapted from Rainbow/agent.py.
 # save() stores a rich checkpoint dict including both online and target net weights
 # so the offline distributional Bellman loss can be reconstructed during analysis.
 from __future__ import annotations
@@ -18,8 +18,8 @@ class TrainingGradientCapture:
     Call accumulate() after each backward pass (before optimizer.step()).
     Call consume() at checkpoint time to get the mean gradient and reset.
 
-    Captures the gradient of the IS-weighted Bellman loss — i.e. the direction
-    the optimizer actually pulls parameters — for later comparison against the
+    Captures the gradient of the IS-weighted Bellman loss - i.e. the direction
+    the optimizer actually pulls parameters - for later comparison against the
     offline counterfactual gradient (G_counterfactual).
     """
 
@@ -71,7 +71,7 @@ class Agent():
     if args.model:  # Load pretrained model if provided
       if os.path.isfile(args.model):
         state_dict = torch.load(args.model, map_location='cpu', weights_only=False)
-        # Rich checkpoint format (saved by Agent.save()) — extract online net only.
+        # Rich checkpoint format (saved by Agent.save()) - extract online net only.
         # train.py's resume block will load target net + optimiser separately.
         if 'online_net_state_dict' in state_dict:
           state_dict = state_dict['online_net_state_dict']
@@ -186,7 +186,7 @@ class Agent():
       m.view(-1).index_add_(0, (l + offset).view(-1), (pns_a * (u.float() - b)).view(-1))  # m_l = m_l + p(s_t+n, a*)(u - b)
       m.view(-1).index_add_(0, (u + offset).view(-1), (pns_a * (b - l.float())).view(-1))  # m_u = m_u + p(s_t+n, a*)(b - l)
 
-    # Cross-entropy loss — with optional outcome-conditioned atom weighting.
+    # Cross-entropy loss - with optional outcome-conditioned atom weighting.
     # Standard: L_i = -∑_j m_j · log p_j
     # Outcome-conditioned: L_i = -∑_j w_j(c_i) · m_j · log p_j
     # where w_j = C·softmax(±z/τ), neutral w_j=1 exactly, preserving gradient magnitude.

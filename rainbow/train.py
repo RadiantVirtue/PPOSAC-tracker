@@ -1,4 +1,4 @@
-"""Rainbow DQN training on Crafter. Adapted from Rainbow/main.py."""
+﻿"""Rainbow DQN training on Crafter. Adapted from Rainbow/main.py."""
 
 import argparse
 import os
@@ -195,12 +195,12 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None, mora_tr
 
     mem = ReplayMemory(args, args.memory_capacity)
 
-    # Reload saved buffer if available — avoids the learn_start dead zone on resume.
+    # Reload saved buffer if available - avoids the learn_start dead zone on resume.
     buf_path = _buffer_live_path(args.experiment_root)
     if resume_step > 0 and os.path.exists(buf_path):
         print(f"  [buffer] Loading replay buffer from {os.path.basename(buf_path)} ...")
         mem.load_buffer(buf_path)
-        print(f"  [buffer] Loaded — {mem.transitions.index} transitions, full={mem.transitions.full}")
+        print(f"  [buffer] Loaded - {mem.transitions.index} transitions, full={mem.transitions.full}")
 
     priority_weight_increase = (1 - args.priority_weight) / (args.T_max - args.learn_start)
 
@@ -337,7 +337,7 @@ def main_rainbow(args, on_checkpoint_saved=None, seen_achievements=None, mora_tr
     env.close()
 
     # Clean up the two held periodic checkpoints (A and B) that outlived training.
-    # Skipped when keep_checkpoints=True — all step files are intentionally retained.
+    # Skipped when keep_checkpoints=True - all step files are intentionally retained.
     keep = getattr(args, 'keep_checkpoints', False)
     if not keep:
         for held in (periodic_A, periodic_B):

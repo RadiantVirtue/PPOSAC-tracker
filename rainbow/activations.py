@@ -1,6 +1,6 @@
-"""Rainbow activation analysis (Crafter).
+﻿"""Rainbow activation analysis (Crafter).
 
-Hook target: "convs" on DQN — the shared CNN block output.
+Hook target: "convs" on DQN - the shared CNN block output.
 Output is 4D (B, 64, 4, 4) for 64×64 canonical input; flattened to (B, 1024)
 via flatten_output=True in extract_activations().
 

@@ -1,4 +1,4 @@
-"""Shared report generation and git-push utilities for train_and_analyze scripts."""
+﻿"""Shared report generation and git-push utilities for train_and_analyze scripts."""
 import os
 import re
 import subprocess
@@ -11,13 +11,13 @@ def label_from_path(path: str) -> str:
     name = os.path.splitext(os.path.basename(path))[0]
     m = re.match(r"periodic_(\d+)_(\d+k)_ep(\d+)", name)
     if m:
-        return f"Checkpoint {int(m.group(1))} — {m.group(2)} ({m.group(3)} episodes)"
+        return f"Checkpoint {int(m.group(1))} - {m.group(2)} ({m.group(3)} episodes)"
     m = re.match(r"periodic_step(\d+)_ep(\d+)", name)
     if m:
         return f"Step {int(m.group(1)):,}"
     m = re.match(r"final_(\d+k)_episodes", name)
     if m:
-        return f"Final — {m.group(1)} episodes"
+        return f"Final - {m.group(1)} episodes"
     m = re.match(r"final_step(\d+)_ep(\d+)", name)
     if m:
         return "Final"
@@ -30,14 +30,14 @@ def label_from_path(path: str) -> str:
         return f"Step {int(m.group(1)):,}"
     m = re.match(r"sac_step(\d+)_ep(\d+)", name)
     if m:
-        return f"Checkpoint step {int(m.group(1)):,} — {int(m.group(2)):,} episodes"
+        return f"Checkpoint step {int(m.group(1)):,} - {int(m.group(2)):,} episodes"
     return name
 
 
 def _f(val, decimals=4):
     """Format a float/None for a table cell."""
     if val is None:
-        return "—"
+        return "-"
     if isinstance(val, float):
         return f"{val:.{decimals}f}"
     return str(val)
@@ -46,7 +46,7 @@ def _f(val, decimals=4):
 def _fi(val):
     """Format an int/None for a table cell."""
     if val is None:
-        return "—"
+        return "-"
     try:
         return f"{int(val):,}"
     except (TypeError, ValueError):
@@ -57,7 +57,7 @@ def _fms(vals: list) -> str:
     """Format a list of floats as 'mean (±std)', handling None entries."""
     clean = [v for v in vals if v is not None]
     if not clean:
-        return "—"
+        return "-"
     if len(clean) == 1:
         return f"{clean[0]:.4f}"
     return f"{np.mean(clean):.4f} (±{np.std(clean):.4f})"
@@ -76,7 +76,7 @@ _AVG_METRICS = [
 
 def _stage_key(label: str):
     """Sortable alignment key from a checkpoint label."""
-    # SAC: "Checkpoint step 50,000 — 123 episodes"
+    # SAC: "Checkpoint step 50,000 - 123 episodes"
     m = re.search(r"Checkpoint step ([\d,]+)", label)
     if m:
         return (0, int(m.group(1).replace(",", "")))
@@ -88,14 +88,14 @@ def _stage_key(label: str):
     m = re.match(r"periodic_step(\d+)_ep\d+", label)
     if m:
         return (0, int(m.group(1)))
-    # PPO periodic (old format): "Checkpoint N — 50k (123 episodes)"
+    # PPO periodic (old format): "Checkpoint N - 50k (123 episodes)"
     m = re.search(r"Checkpoint (\d+)", label)
     if m:
         return (0, int(m.group(1)))
     # Final checkpoints (raw filename fallback): "final_step3000320_ep14207"
     if "Final" in label or re.match(r"final_step\d+_ep\d+", label):
         return (1, 0)
-    # Milestone: "collect_wood @ ep123"  — strip episode, match on name only
+    # Milestone: "collect_wood @ ep123"  - strip episode, match on name only
     m = re.match(r"^(.+?) @ ep\d+", label)
     if m:
         return (2, m.group(1))
@@ -189,26 +189,26 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
         _RQ_LABELS = {
             # PPO-specific
             "rq1_opposition": (
-                "RQ1 — G_uniform Opposition Score Over Training",
+                "RQ1 - G_uniform Opposition Score Over Training",
                 "PPO has no G_IS analog (on-policy, no PER). The low magnitude (typically 0.1–0.6) "
                 "and high variance across checkpoints contrasts sharply with Rainbow's stable 0.7–0.98 "
                 "range, reflecting the noisier gradient structure of on-policy learning."
             ),
             "rq3_activation_rsa": (
-                "RQ3 — Activation Separation and RSA Alignment Co-trajectory",
+                "RQ3 - Activation Separation and RSA Alignment Co-trajectory",
                 "Top: activation separation (Euclidean centroid distance) grows from ~0.8 to 3–5 over "
                 "training. Bottom: RSA alignment ρ starts negative (–0.4 to –0.6 early) and transitions "
                 "to positive (0.15–0.35) by mid/late training, indicating emerging semantic structure."
             ),
             "rq3_coherence": (
-                "RQ3 — Gradient Coherence and Magnitude Over Training",
-                "Top: gradient coherence for success and failure groups — PPO coherence is consistently "
+                "RQ3 - Gradient Coherence and Magnitude Over Training",
+                "Top: gradient coherence for success and failure groups - PPO coherence is consistently "
                 "low (0.05–0.4) throughout, contrasting with Rainbow's 0.83–0.97. "
-                "Bottom: gradient magnitude success vs failure — similar magnitudes with slight "
+                "Bottom: gradient magnitude success vs failure - similar magnitudes with slight "
                 "failure-group advantage in early training."
             ),
             "rq3_coherence_vs_rsa": (
-                "RQ3 — Gradient Coherence vs RSA Alignment (Scatter)",
+                "RQ3 - Gradient Coherence vs RSA Alignment (Scatter)",
                 "Each point is one periodic checkpoint, coloured by training stage. "
                 "Tests whether higher coherence predicts better semantic structure. "
                 "A weak positive trend in late training is expected; the scatter pattern "
@@ -216,39 +216,39 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
             ),
             # Rainbow-specific
             "rq1_gradient_variants":  (
-                "RQ1 — Directional Stability: cos(G_uniform, G_IS) and Opposition Score",
+                "RQ1 - Directional Stability: cos(G_uniform, G_IS) and Opposition Score",
                 "Top panel: cosine similarity between G_uniform and G_IS for success/failure groups "
-                "(expected ~0.97–1.0 throughout). Bottom panel: opposition score under both weightings — "
+                "(expected ~0.97–1.0 throughout). Bottom panel: opposition score under both weightings - "
                 "G_IS tracks G_uniform closely, confirming IS re-weighting does not substantially "
                 "redirect gradient direction."
             ),
             "rq2_cos_is_reward": (
-                "RQ2 — PER Directional Influence: cos(G_IS, G_reward)",
+                "RQ2 - PER Directional Influence: cos(G_IS, G_reward)",
                 "Alignment between the IS-weighted gradient and the reward-proximal gradient proxy. "
                 "High values indicate PER tends to up-weight reward-proximal transitions; "
                 "variance across training reflects inconsistency of this alignment."
             ),
             "rq3_coherence_vs_rsa": (
-                "RQ3 — Coherence vs Representational Structure (Scatter)",
+                "RQ3 - Coherence vs Representational Structure (Scatter)",
                 "Each point is one periodic checkpoint. Colour encodes training stage (early=dark, "
                 "late=bright). A positive slope would support the RQ3 prediction that high gradient "
                 "coherence predicts better semantic structure. Weak/absent correlation is itself informative."
             ),
             "rq4_mora_budget": (
-                "RQ4 — MORA: Weighted Gradient Budget by Reward Sign",
+                "RQ4 - MORA: Weighted Gradient Budget by Reward Sign",
                 "Proportional gradient contribution = gradient_magnitude × n_transitions, normalised "
                 "to sum to 1. Resolves the scale problem: despite ~5–10× higher per-transition "
                 "magnitude, positive transitions do not overwhelmingly dominate because neutral "
                 "transitions vastly outnumber them."
             ),
             "rq4_mora_magnitude_log": (
-                "RQ4 — MORA: Per-Transition Gradient Magnitude (Log Scale)",
+                "RQ4 - MORA: Per-Transition Gradient Magnitude (Log Scale)",
                 "Log y-axis makes the 5–10× gap between positive and neutral per-transition magnitudes "
                 "readable without flattening the neutral baseline. Negative transitions sit in between."
             ),
             "rq4_mora_opposition": (
-                "RQ4 — MORA: Cross-Group Opposition Scores",
-                "Three pairwise comparisons: Positive vs Neutral (directional conflict — persistently "
+                "RQ4 - MORA: Cross-Group Opposition Scores",
+                "Three pairwise comparisons: Positive vs Neutral (directional conflict - persistently "
                 "negative means reward moments and exploratory steps push the network in opposite "
                 "directions); Positive vs Failure; Neutral vs Failure."
             ),
@@ -269,7 +269,7 @@ def generate_report(checkpoint_results, env_id, seed, total_episodes, experiment
         # merged metrics table
         cs = r.get("cluster_stats") or {}
         rsa_labels = r.get("rsa_labels") or []
-        rsa_stimuli = ", ".join(rsa_labels) if rsa_labels else "—"
+        rsa_stimuli = ", ".join(rsa_labels) if rsa_labels else "-"
         lines += [
             "### Metrics", "",
             "| Metric | Value |",
@@ -423,7 +423,7 @@ def generate_averaged_report(
             results = all_seed_results.get(seed, [])
             row = next((r for lbl, r in results if _stage_key(lbl) == k), None)
             if row is None:
-                lines.append(f"| {seed} | — |" + " — |" * len(_AVG_METRICS))
+                lines.append(f"| {seed} | - |" + " - |" * len(_AVG_METRICS))
             else:
                 cells = " | ".join(_f(row.get(key)) for key, _ in _AVG_METRICS)
                 lines.append(f"| {seed} | {_fi(row.get('episode'))} | {cells} |")
@@ -446,7 +446,7 @@ def push_reports(report_paths: list, env_id: str):
 
     status = _run(["git", "status", "--porcelain"])
     if not status.stdout.strip():
-        print("[push] Nothing new to commit — remote already up to date.")
+        print("[push] Nothing new to commit - remote already up to date.")
         return
 
     commit = _run(["git", "commit", "-m", f"auto: analysis reports [{env_id}]"])

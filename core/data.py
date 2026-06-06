@@ -1,4 +1,4 @@
-"""Canonical data structures shared across the entire pipeline."""
+﻿"""Canonical data structures shared across the entire pipeline."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,7 +9,7 @@ import numpy as np
 @dataclass
 class EpisodeData:
     """One episode's trajectory in canonical format."""
-    observations: np.ndarray   # (T, H, W, C) uint8 — always; never float32
+    observations: np.ndarray   # (T, H, W, C) uint8 - always; never float32
     actions:      np.ndarray   # (T,) int64
     rewards:      np.ndarray   # (T,) float32
     dones:        np.ndarray   # (T,) bool
@@ -41,8 +41,8 @@ class GradientResult:
 class ActivationResult:
     """Activation analysis output for success + failure groups combined."""
     activations:    np.ndarray   # (N_total, D) float32
-    projected:      np.ndarray   # (N_total, 2) float32 — UMAP 2-D
-    cluster_labels: np.ndarray   # (N_total,) int — HDBSCAN (-1 = noise)
+    projected:      np.ndarray   # (N_total, 2) float32 - UMAP 2-D
+    cluster_labels: np.ndarray   # (N_total,) int - HDBSCAN (-1 = noise)
     centroids:      dict         # {"success": (D,), "failure": (D,)}
     cluster_stats:  dict
 

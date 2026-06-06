@@ -1,4 +1,4 @@
-"""Rainbow gradient analysis: G_uniform, G_IS (PER-corrected), G_reward variants.
+﻿"""Rainbow gradient analysis: G_uniform, G_IS (PER-corrected), G_reward variants.
 
 Two-pass design: Pass 1 collects per-transition losses for IS weight normalization;
 Pass 2 runs three backward() calls per episode to accumulate each gradient variant.
@@ -19,8 +19,8 @@ def _compute_nstep_returns(rewards, dones, gamma, n):
         n:       number of steps
 
     Returns:
-        R:          (T,) float32 — n-step return for each step
-        nonterminal:(T,) float32 — 1 if the nth-next state is non-terminal, else 0
+        R:          (T,) float32 - n-step return for each step
+        nonterminal:(T,) float32 - 1 if the nth-next state is non-terminal, else 0
     """
     T = len(rewards)
     R = torch.zeros(T, dtype=torch.float32)
@@ -52,19 +52,19 @@ def _project_distribution(next_obs, online_net, target_net, R, nonterminal,
     Adapted from Rainbow/agent.py::learn().
 
     Args:
-        next_obs:    (T, C, H, W) float32 — next observations
+        next_obs:    (T, C, H, W) float32 - next observations
         online_net:  DQN (for double-Q action selection)
         target_net:  DQN (for target distribution)
-        R:           (T,) float32 — n-step returns
-        nonterminal: (T,) float32 — 1 if non-terminal
-        support:     (atoms,) float32 — value support z
+        R:           (T,) float32 - n-step returns
+        nonterminal: (T,) float32 - 1 if non-terminal
+        support:     (atoms,) float32 - value support z
         Vmin, Vmax, delta_z, atoms: distribution parameters
         gamma:       discount factor
         n:           n-step
         device:      torch device
 
     Returns:
-        m: (T, atoms) float32 — target distribution
+        m: (T, atoms) float32 - target distribution
     """
     T = len(R)
     R = R.to(device)
@@ -121,7 +121,7 @@ def _forward_per_loss(episode, online_net, target_net,
         device:     torch device
 
     Returns:
-        per_loss: (T,) float32 — per-transition cross-entropy losses (>= 0)
+        per_loss: (T,) float32 - per-transition cross-entropy losses (>= 0)
     """
     obs     = episode.observations.to(device)   # (T, 3, H, W) float32
     actions = episode.actions.to(device)        # (T,) long
@@ -151,12 +151,12 @@ def _compute_is_weights(all_per_losses, alpha, beta):
     w_i = (1 / (N · P(i)))^β, normalized by max(w).
 
     Args:
-        all_per_losses: (N_total,) float32 tensor — detached per-transition losses
-        alpha:          float — priority exponent (default 0.5)
-        beta:           float — IS exponent (annealed 0.4 → 1.0)
+        all_per_losses: (N_total,) float32 tensor - detached per-transition losses
+        alpha:          float - priority exponent (default 0.5)
+        beta:           float - IS exponent (annealed 0.4 → 1.0)
 
     Returns:
-        w: (N_total,) float32 — IS weights in (0, 1], max = 1.0
+        w: (N_total,) float32 - IS weights in (0, 1], max = 1.0
     """
     priorities = all_per_losses.clamp(min=1e-8) ** alpha
     probs = priorities / priorities.sum()         # P(i) = p_i^α / Σ p_k^α
@@ -222,7 +222,7 @@ def compute_group_gradient_with_coherence(
         beta_used   = beta_start + (1.0 - beta_start) * anneal_frac
 
         if precomputed_is_weights is not None:
-            # pre-computed over joint pool — skip Pass 1
+            # pre-computed over joint pool - skip Pass 1
             is_weights_per_ep = precomputed_is_weights
         else:
             # Pass 1: collect per-transition losses for within-group IS normalisation
@@ -242,7 +242,7 @@ def compute_group_gradient_with_coherence(
             if valid_losses:
                 all_losses = torch.cat(valid_losses)                    # (N_total_valid,)
                 all_is_weights = _compute_is_weights(all_losses, alpha, beta_used)
-                # Split back to per-episode — rebuild index
+                # Split back to per-episode - rebuild index
                 is_weights_per_ep = []
                 ptr = 0
                 for l in episode_losses_detached:
@@ -278,7 +278,7 @@ def compute_group_gradient_with_coherence(
             T = len(episode.rewards)
 
             if use_target and T > 1 and is_w_ep is not None:
-                # Backward 1 — uniform
+                # Backward 1 - uniform
                 online_net.zero_grad()
                 per_loss = _forward_per_loss(
                     episode, online_net, target_net,
@@ -288,13 +288,13 @@ def compute_group_gradient_with_coherence(
                 batch_uniform_agg.accumulate(named_params)
                 overall_uniform_agg.accumulate(named_params)
 
-                # Backward 2 — IS-weighted
+                # Backward 2 - IS-weighted
                 online_net.zero_grad()
                 (is_w_ep.to(device) * per_loss).mean().backward(retain_graph=True)
                 batch_is_agg.accumulate(named_params)
                 overall_is_agg.accumulate(named_params)
 
-                # Backward 3 — reward-weighted (no retain_graph — free the graph)
+                # Backward 3 - reward-weighted (no retain_graph - free the graph)
                 online_net.zero_grad()
                 rw_w = _compute_reward_weights(episode.rewards, device)
                 (rw_w * per_loss).mean().backward()

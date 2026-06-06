@@ -1,11 +1,11 @@
-"""rainbow/weight_delta.py — Weight-delta empirical validation for IS gradient reconstruction.
+﻿"""rainbow/weight_delta.py - Weight-delta empirical validation for IS gradient reconstruction.
 
 Computes cosine similarities between each offline gradient variant (G_uniform,
 G_IS, G_reward) and the actual weight change Δθ = θ_{N+1} − θ_N between
 consecutive analyzed checkpoints.
 
 If cos(G_IS, Δθ) > cos(G_uniform, Δθ), the IS reconstruction better predicts
-the direction weights actually moved — empirical validation of the stale-priority
+the direction weights actually moved - empirical validation of the stale-priority
 approximation without needing the live replay buffer.
 
 Key design choices:
@@ -14,7 +14,7 @@ Key design choices:
   gradient in eval mode (noise is not sampled) but receive real weight updates
   during training. Including them would create systematic misalignment.
 - cosine_similarity_flat() in shared/gradient_utils.py takes two {param_name: tensor}
-  dicts and concatenates by sorted key order — both Δθ and the gradient dicts must
+  dicts and concatenates by sorted key order - both Δθ and the gradient dicts must
   have matching key sets.
 - Absolute cosines will be low: Adam momentum accumulates many gradient steps between
   checkpoints, and gradients are computed at N+1's frozen weights rather than the
@@ -22,7 +22,7 @@ Key design choices:
   G_uniform), not absolute values.
 - Training-stage caveat: relative ordering is most reliable at mid-training (large
   Δθ, meaningful signal). At late training Δθ is tiny and near-orthogonal to all
-  variants — both cosines approach zero and ordering becomes unreliable. This is the
+  variants - both cosines approach zero and ordering becomes unreliable. This is the
   opposite of where G_IS is most accurate. See Gradient Analysis v5.md §6.
 
 Reference: Gradient Analysis v5.md, Section 6.
@@ -36,7 +36,7 @@ def _non_sigma_keys(d: dict) -> list:
     bias_mu, bias_sigma. Sigma params have zero analytical gradient in
     eval mode (noise is not sampled) but receive real weight updates
     during training. Excluding them makes Δθ and G_* comparable.
-    Regular Conv and Linear layers have no sigma params — all their
+    Regular Conv and Linear layers have no sigma params - all their
     keys pass through unchanged.
     """
     return sorted(k for k in d if "weight_sigma" not in k and "bias_sigma" not in k)
@@ -72,7 +72,7 @@ def compute_weight_delta_metrics(
 
     Training-stage caveat: relative ordering is most reliable at mid-training
     where Δθ is large. At late training (near convergence) Δθ is tiny and
-    near-orthogonal to all gradient variants — both cosines approach zero and
+    near-orthogonal to all gradient variants - both cosines approach zero and
     their ordering becomes unreliable. This is the opposite of where G_IS is
     most accurate (late training). Treat validation as strongest at mid-training
     checkpoints.
@@ -96,8 +96,8 @@ def compute_weight_delta_metrics(
     def _cos(raw_grad):
         """Cosine similarity between a gradient dict and Δθ, sigma-filtered.
 
-        raw_grad comes from named_parameters() — parameters only.
-        delta comes from state_dict() — parameters + registered buffers (e.g. support).
+        raw_grad comes from named_parameters() - parameters only.
+        delta comes from state_dict() - parameters + registered buffers (e.g. support).
         Intersect to the keys present in both so both vectors have the same length.
         """
         if raw_grad is None:
@@ -113,7 +113,7 @@ def compute_weight_delta_metrics(
     def _group(grad_dict, variant):
         # Use explicit key access rather than .get(variant, {}) to catch dict
         # structure mismatches early. If the variant key is absent the caller
-        # has passed an incompatible grad dict — fail loudly rather than silently
+        # has passed an incompatible grad dict - fail loudly rather than silently
         # returning None (which would look like a valid "first checkpoint" result).
         if variant not in grad_dict:
             raise KeyError(

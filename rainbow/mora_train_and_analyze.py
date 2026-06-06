@@ -1,4 +1,4 @@
-"""MORA-Informed Priority — comparison experiment.
+﻿"""MORA-Informed Priority - comparison experiment.
 
 Runs standard Rainbow (k=0, PER baseline) and MORA-Rainbow for each k in
 k_values over T_max steps, then plots smoothed return curves and modifier
@@ -12,10 +12,10 @@ Usage:
 Outputs (under --experiment-root, default mora_results/):
     mora_results/
         k{k}/seed_{s}/logs/
-            rainbowreturnlog.txt          — episode returns (one per line)
-            mora_modifier_log.csv         — episode, m, frac_neg_batch  (MORA runs only)
-        mora_return_comparison.png        — smoothed return curves (all k, seeds)
-        mora_modifier_curves.png          — m over episodes (one seed per k, sanity check)
+            rainbowreturnlog.txt          - episode returns (one per line)
+            mora_modifier_log.csv         - episode, m, frac_neg_batch  (MORA runs only)
+        mora_return_comparison.png        - smoothed return curves (all k, seeds)
+        mora_modifier_curves.png          - m over episodes (one seed per k, sanity check)
 """
 from __future__ import annotations
 

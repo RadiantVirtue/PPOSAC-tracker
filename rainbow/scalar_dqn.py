@@ -1,4 +1,4 @@
-"""Scalar-loss DQN ablation — non-distributional Rainbow.
+﻿"""Scalar-loss DQN ablation - non-distributional Rainbow.
 
 Architecture identical to Rainbow: same CNN backbone, dueling NoisyLinear heads,
 PER, n-step returns, target network.  The only removal is C51: output is scalar
@@ -277,7 +277,7 @@ def _scalar_per_loss(
     computation graph for backward passes.
 
     Returns:
-        per_loss: (T,) float32 — Huber loss per transition (>= 0).
+        per_loss: (T,) float32 - Huber loss per transition (>= 0).
     """
     obs     = episode.observations.to(device)   # (T, 3, H, W)
     actions = episode.actions.to(device)        # (T,) long
@@ -291,7 +291,7 @@ def _scalar_per_loss(
     if n < T:
         next_obs[:-n] = obs[n:]   # next_obs[t] = obs[t+n]; last n rows get zero (no bootstrap)
 
-    # Q(s, a_t) — grad-tracked
+    # Q(s, a_t) - grad-tracked
     q_a = online_net(obs)[range(T), actions]   # (T,)
 
     with torch.no_grad():
@@ -499,7 +499,7 @@ def train_scalar_dqn(args, seed: int, out_root: str) -> str:
 
     Args:
         args:     argparse.Namespace with Rainbow hyperparameters (atoms/V_min/V_max
-                  are unused — scalar DQN ignores distributional parameters).
+                  are unused - scalar DQN ignores distributional parameters).
         seed:     random seed.
         out_root: experiment root directory for checkpoints and logs.
 
@@ -525,7 +525,7 @@ def train_scalar_dqn(args, seed: int, out_root: str) -> str:
     args.seed           = seed
     args.experiment_root = out_root
     # Scalar DQN does not use distributional params but ReplayMemory needs
-    # history_length — ensure it is set to 3 (RGB channels).
+    # history_length - ensure it is set to 3 (RGB channels).
     if not hasattr(args, "history_length"):
         args.history_length = 3
 

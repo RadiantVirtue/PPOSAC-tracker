@@ -1,16 +1,16 @@
-"""Crafter achievement definitions.
+﻿"""Crafter achievement definitions.
 
 Shared by all entities that use the Crafter environment. Contains no logic.
 """
 
 ACHIEVEMENT_NAMES = [
-    # Tier 1 — basic survival
+    # Tier 1 - basic survival
     "collect_wood",
     "collect_sapling",
     "collect_drink",
     "eat_plant",
     "wake_up",
-    # Tier 2 — basic crafting / combat
+    # Tier 2 - basic crafting / combat
     "place_table",
     "collect_stone",
     "defeat_zombie",
@@ -18,13 +18,13 @@ ACHIEVEMENT_NAMES = [
     "defeat_skeleton",
     "make_wood_pickaxe",
     "make_wood_sword",
-    # Tier 3 — advanced crafting
+    # Tier 3 - advanced crafting
     "collect_coal",
     "place_stone",
     "place_furnace",
     "make_stone_pickaxe",
     "make_stone_sword",
-    # Tier 4 — endgame
+    # Tier 4 - endgame
     "collect_iron",
     "collect_diamond",
     "make_iron_pickaxe",
@@ -76,7 +76,7 @@ ACHIEVEMENT_GROUPS = {
     }),
 }
 
-# Materials required to craft each achievement — used by compute_eps() only
+# Materials required to craft each achievement - used by compute_eps() only
 ACHIEVEMENT_MATERIALS = {
     "place_table":         {"wood": 2},
     "make_wood_pickaxe":   {"wood": 1},

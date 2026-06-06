@@ -1,4 +1,4 @@
-"""dissertation_graphs/rainbow/plot_rq2_weight_delta.py
+﻿"""dissertation_graphs/rainbow/plot_rq2_weight_delta.py
 
 RQ2 dissertation graph: cos(G_variant, delta_theta) weight-delta validation
 for Rainbow, averaged across 5 seeds.
@@ -104,7 +104,7 @@ def plot(rainbow_root: str, _out_dir_ignored: str = "", dpi: int = 150):
         mean, std, n = _avg_metric_across_seeds(results, key, step_grid)
         fin = np.isfinite(mean)
         if not fin.any():
-            print(f"  WARNING: no data for {key} — skipping")
+            print(f"  WARNING: no data for {key} - skipping")
             continue
         if n_seeds is None:
             n_seeds = n

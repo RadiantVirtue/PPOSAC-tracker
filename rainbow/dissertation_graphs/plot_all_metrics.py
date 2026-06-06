@@ -1,4 +1,4 @@
-"""dissertation_graphs/rainbow/plot_all_metrics.py
+﻿"""dissertation_graphs/rainbow/plot_all_metrics.py
 
 Per-metric timeseries for Rainbow.
 
@@ -105,7 +105,7 @@ def _plot_single(results, step_grid, ach_steps, field, color, marker_key,
     mean, std, n = _avg_metric_across_seeds(results, field, step_grid)
     fin = np.isfinite(mean)
     if not fin.any():
-        print(f"  skip {field!r} — no finite data")
+        print(f"  skip {field!r} - no finite data")
         return None
 
     marker, ms = METRIC_MARKERS.get(marker_key, (None, 6)) if marker_key else (None, 6)
@@ -142,7 +142,7 @@ def _plot_rsa_pair(results, step_grid, ach_steps,
     m1, s1, n1 = _avg_metric_across_seeds(results, field1, step_grid)
     m2, s2, n2 = _avg_metric_across_seeds(results, field2, step_grid)
     if not np.isfinite(m1).any() and not np.isfinite(m2).any():
-        print(f"  skip RSA pair {field1}/{field2} — no finite data")
+        print(f"  skip RSA pair {field1}/{field2} - no finite data")
         return None
 
     mk1, ms1 = METRIC_MARKERS.get(mkey1, (None, 6))
@@ -187,7 +187,7 @@ def plot(rainbow_root: str, _out_dir_ignored: str = "", dpi: int = 150) -> list:
     ach_steps = _ach_steps_from_all_results(results)
     paths = []
 
-    # Section 7.2.2 — Gradient Coherence
+    # Section 7.2.2 - Gradient Coherence
     for field, color, mkey, ylabel, fname in [
         ("coherence_success", C_ORANGE_LIGHT, "coherence_success",
          "Coherence (success group)", "coherence_success_rainbow.pdf"),
@@ -199,7 +199,7 @@ def plot(rainbow_root: str, _out_dir_ignored: str = "", dpi: int = 150) -> list:
         if p:
             paths.append(p)
 
-    # Section 7.2.3 — Activation Space Structure
+    # Section 7.2.3 - Activation Space Structure
     for field, color, mkey, ylabel, fname in [
         ("activation_separation",      C_INDIGO, None,
          "Activation Separation",      "activation_separation_rainbow.pdf"),
@@ -211,12 +211,12 @@ def plot(rainbow_root: str, _out_dir_ignored: str = "", dpi: int = 150) -> list:
         if p:
             paths.append(p)
 
-    # Section 7.3 — IS Correction
+    # Section 7.3 - IS Correction
     for field, color, mkey, ylabel, fname, hc in [
         ("cos_uniform_is_success", _C_UNIFORM, "g_uniform",
-         "cos(G_uniform, G_IS) — success", "cos_uniform_is_success_rainbow.pdf", True),
+         "cos(G_uniform, G_IS) - success", "cos_uniform_is_success_rainbow.pdf", True),
         ("cos_uniform_is_failure", _C_UNIFORM, "g_uniform",
-         "cos(G_uniform, G_IS) — failure", "cos_uniform_is_failure_rainbow.pdf", True),
+         "cos(G_uniform, G_IS) - failure", "cos_uniform_is_failure_rainbow.pdf", True),
     ]:
         p = _plot_single(results, step_grid, ach_steps,
                          field, color, mkey, ylabel, fname, "7.3", dpi,
@@ -224,7 +224,7 @@ def plot(rainbow_root: str, _out_dir_ignored: str = "", dpi: int = 150) -> list:
         if p:
             paths.append(p)
 
-    # Section 7.5.2 — RSA Alignment (paired plots)
+    # Section 7.5.2 - RSA Alignment (paired plots)
     p = _plot_rsa_pair(
         results, step_grid, ach_steps,
         "rsa_alignment_fighting", C_RSA_FIGHTING, "rsa_fighting", "Fighting",

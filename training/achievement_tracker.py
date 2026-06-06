@@ -1,9 +1,9 @@
-"""Per-episode achievement frame logging for RSA stimulus collection.
+﻿"""Per-episode achievement frame logging for RSA stimulus collection.
 
 Tracks the first observation frame within each episode where each achievement
 is unlocked. Used to build EvaluationBatch.achievement_frames.
 
-NOT used for EPS scoring — that is entity.compute_eps().
+NOT used for EPS scoring - that is entity.compute_eps().
 """
 from __future__ import annotations
 

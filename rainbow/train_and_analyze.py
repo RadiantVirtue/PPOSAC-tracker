@@ -1,4 +1,4 @@
-"""Train Rainbow DQN on Crafter, analyse every N checkpoints, write a markdown report.
+﻿"""Train Rainbow DQN on Crafter, analyse every N checkpoints, write a markdown report.
 
 Checkpoint lifecycle (save → analyse → delete):
   - Training saves checkpoint_step{N}.pt every checkpoint_interval steps.
@@ -145,7 +145,7 @@ def _run_seed(args: Args, seed: int) -> tuple:
     print(f"Training complete: {episode_count:,} episodes\n")
 
     # Final held periodic checkpoints (A and B) are deleted by train.py after the
-    # training loop exits — no cleanup needed here.
+    # training loop exits - no cleanup needed here.
 
     checkpoint_results.sort(key=lambda x: x[1].get("episode", 0))
 
@@ -189,7 +189,7 @@ def run(args: Args):
     report_paths.append(avg_path)
 
     if len(all_seed_results) == len(args.seeds):
-        print(f"\nAll {len(args.seeds)} seeds complete — generating averaged & zoomed graphs ...")
+        print(f"\nAll {len(args.seeds)} seeds complete - generating averaged & zoomed graphs ...")
         generate_rq_graphs_averaged(all_seed_results, args.experiment_root)
         generate_achievement_zoom_graphs(
             args.experiment_root, list(all_seed_results.keys()), algorithm="rainbow"

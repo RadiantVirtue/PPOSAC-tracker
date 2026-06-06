@@ -1,4 +1,4 @@
-"""Resume Rainbow training for seed 1 from checkpoint_live.pt to 3M steps.
+﻿"""Resume Rainbow training for seed 1 from checkpoint_live.pt to 3M steps.
 
 Seed 1's checkpoint_live.pt is at ~1.5M steps. This script resumes from
 that checkpoint and trains to 3M steps, overwriting checkpoint_live.pt
@@ -44,7 +44,7 @@ def main():
     print(f"Resuming seed 1 from step {current_step:,} → {args.T_max:,}")
 
     if current_step >= args.T_max:
-        print(f"[info] Already at {current_step:,} steps — nothing to do.")
+        print(f"[info] Already at {current_step:,} steps - nothing to do.")
         return
 
     from rainbow.train import build_parser, main_rainbow

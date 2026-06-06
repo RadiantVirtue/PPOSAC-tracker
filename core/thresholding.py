@@ -1,4 +1,4 @@
-"""Episode partitioning into success / failure groups."""
+﻿"""Episode partitioning into success / failure groups."""
 import numpy as np
 
 
@@ -9,9 +9,9 @@ def partition_episodes(episodes, scores, mode="eps", percentile_x=25,
     Args:
         episodes:          list of EpisodeData
         scores:            list or array of EPS scores (one per episode)
-        mode:              "eps"        — split at mean EPS score
-                           "percentile" — bottom/top percentile_x% by score
-                           "fixed"      — apply pre-determined cutoffs
+        mode:              "eps"        - split at mean EPS score
+                           "percentile" - bottom/top percentile_x% by score
+                           "fixed"      - apply pre-determined cutoffs
         percentile_x:      percentage for percentile mode (default 25)
         fixed_thresholds:  (lower, upper) tuple for fixed mode
 
@@ -40,7 +40,7 @@ def partition_episodes(episodes, scores, mode="eps", percentile_x=25,
         upper = float(scores_arr[sorted_idx[n - n_each]])
         return success, failure, (lower, upper)
 
-    else:  # "eps" — split at mean
+    else:  # "eps" - split at mean
         mu = float(np.mean(scores))
         success = [ep for ep, s in zip(episodes, scores) if s >= mu]
         failure = [ep for ep, s in zip(episodes, scores) if s < mu]

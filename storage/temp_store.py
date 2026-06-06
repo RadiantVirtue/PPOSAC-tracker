@@ -1,4 +1,4 @@
-"""Temp storage for EvaluationBatch. Files are deleted after analysis."""
+﻿"""Temp storage for EvaluationBatch. Files are deleted after analysis."""
 from __future__ import annotations
 
 import os
@@ -13,8 +13,8 @@ def save_batch(batch: EvaluationBatch, temp_dir: str) -> str:
     """Compress and save batch to temp_dir. Returns absolute path.
 
     File format ({entity_id}_step{step}_{ts}.npz):
-        entity_id, checkpoint_path, checkpoint_step  — str/int scalars
-        n_episodes                                   — int scalar
+        entity_id, checkpoint_path, checkpoint_step  - str/int scalars
+        n_episodes                                   - int scalar
         eps_scores          float32 (N,)
         episode_lengths     int32   (N,)
         observations        uint8   (N_total, H, W, C)

@@ -1,4 +1,4 @@
-"""PPO + Crafter entity.
+﻿"""PPO + Crafter entity.
 
 Implements the Entity protocol for SB3 PPO trained on the Crafter environment.
 Absorbs: wrappers.py, ppo/sampling.py (entity methods), ppo/gradients.py.
@@ -79,7 +79,7 @@ class PPOCrafter:
         return obs_tensor
 
     def get_policy(self, model: PPO) -> object:
-        """Return model.policy — the hookable ActorCriticPolicy."""
+        """Return model.policy - the hookable ActorCriticPolicy."""
         return model.policy
 
     def compute_gradients(self, model: PPO, episodes: list[EpisodeData],

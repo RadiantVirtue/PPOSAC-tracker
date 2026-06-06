@@ -1,4 +1,4 @@
-"""End-to-end Rainbow training + corrected analysis pipeline.
+﻿"""End-to-end Rainbow training + corrected analysis pipeline.
 
 Trains Rainbow DQN from scratch (or resumes) for all seeds, running the corrected
 analysis inline at every checkpoint_interval steps. All checkpoint_step{N}.pt files
@@ -6,17 +6,17 @@ are kept on disk (keep_checkpoints=True) so the post-training longitudinal phase
 (D, H, I) can re-run analysis across the full training trajectory.
 
 After all seeds are trained, runs post-training robustness phases:
-  C — Scalar DQN ablation (MORA ratio gate test)
-  D — Fixed-threshold longitudinal analysis (all 50k-step checkpoints)
-  F — Robustness CI report (all inline analysis JSONs)
-  H — Frozen-RSA longitudinal analysis (all 50k-step checkpoints)
-  I — EPS sensitivity longitudinal analysis (all 50k-step checkpoints)
+  C - Scalar DQN ablation (MORA ratio gate test)
+  D - Fixed-threshold longitudinal analysis (all 50k-step checkpoints)
+  F - Robustness CI report (all inline analysis JSONs)
+  H - Frozen-RSA longitudinal analysis (all 50k-step checkpoints)
+  I - EPS sensitivity longitudinal analysis (all 50k-step checkpoints)
 
 Checkpoint lifecycle
 --------------------
-  checkpoint_live.pt              — overwritten in-place each interval; used for resume
-  checkpoint_step{N}.pt           — saved at every checkpoint_interval; kept permanently
-  milestones/milestone_first_*.pt — permanent copy of each first-achievement checkpoint
+  checkpoint_live.pt              - overwritten in-place each interval; used for resume
+  checkpoint_step{N}.pt           - saved at every checkpoint_interval; kept permanently
+  milestones/milestone_first_*.pt - permanent copy of each first-achievement checkpoint
 
 Output layout (all under --experiment_root, default rainbow_v2/)
 ----------------------------------------------------------------
@@ -230,10 +230,10 @@ def _run_seed(seed: int, args: argparse.Namespace, exp_root: str):
                 seed_root, "analysis_logs", "rainbow", "checkpoint_step*.json"
             )))
             if n_jsons > 0:
-                print(f"  [seed {seed}] already complete ({n_jsons} JSONs) — skip training")
+                print(f"  [seed {seed}] already complete ({n_jsons} JSONs) - skip training")
                 return
             else:
-                print(f"  [seed {seed}] training complete but no analysis JSONs — "
+                print(f"  [seed {seed}] training complete but no analysis JSONs - "
                       "skipping training; post phases will still run")
                 return
 
@@ -337,7 +337,7 @@ def _run_phase_c(args: argparse.Namespace, exp_root: str):
     live_ckpt = os.path.join(seed_root_sc, "checkpoints", "scalar_dqn",
                              "checkpoint_live.pt")
     if os.path.exists(live_ckpt):
-        print(f"  [info] Scalar checkpoint exists — skipping training\n         {live_ckpt}")
+        print(f"  [info] Scalar checkpoint exists - skipping training\n         {live_ckpt}")
         ckpt_path = live_ckpt
     else:
         print(f"  Training ScalarDQN seed={seed}, T_max={args.T_max:,} ...")
@@ -369,11 +369,11 @@ def _run_phase_c(args: argparse.Namespace, exp_root: str):
         )))
         ref_json = candidates[-1] if candidates else None
         if ref_json:
-            print(f"  [warn] Final step JSON missing — using {os.path.basename(ref_json)}")
+            print(f"  [warn] Final step JSON missing - using {os.path.basename(ref_json)}")
 
     rainbow_ref = _load_rainbow_mora_ratio(ref_json) if ref_json else None
     if rainbow_ref is None:
-        print("  [warn] No Rainbow reference JSON — comparison unavailable")
+        print("  [warn] No Rainbow reference JSON - comparison unavailable")
 
     out_path = os.path.join(scalar_root, "scalar_ablation_result.json")
     with open(out_path, "w") as f:
@@ -414,12 +414,12 @@ def _run_phase_d(args: argparse.Namespace, exp_root: str, stride: int = 1):
     print(f"  Thresholds: lower={fixed_thresholds[0]:.4f}  upper={fixed_thresholds[1]:.4f}")
 
     phase_d_seed = args.seeds[0]
-    print(f"  Phase D runs on seed {phase_d_seed} only (robustness check — one seed is sufficient)")
+    print(f"  Phase D runs on seed {phase_d_seed} only (robustness check - one seed is sufficient)")
     for seed in [phase_d_seed]:
         seed_dir  = os.path.join(exp_root, f"seed_{seed}")
         ckpts     = _find_step_checkpoints(seed_dir, stride=stride)
         if not ckpts:
-            print(f"  [seed {seed}] no checkpoint_step*.pt files found — skipping")
+            print(f"  [seed {seed}] no checkpoint_step*.pt files found - skipping")
             continue
 
         out_dir = os.path.join(out_root, f"seed_{seed}")
@@ -474,7 +474,7 @@ def _run_phase_h(args: argparse.Namespace, exp_root: str, stride: int = 1):
                 pass
 
     if not all_labels:
-        print("  [ERROR] No RSA labels in inline analysis JSONs — run training first.")
+        print("  [ERROR] No RSA labels in inline analysis JSONs - run training first.")
         return
 
     reference_stimuli = frozenset(all_labels)
@@ -486,7 +486,7 @@ def _run_phase_h(args: argparse.Namespace, exp_root: str, stride: int = 1):
         seed_dir = os.path.join(exp_root, f"seed_{seed}")
         ckpts    = _find_step_checkpoints(seed_dir, stride=stride)
         if not ckpts:
-            print(f"  [seed {seed}] no checkpoint_step*.pt files — skipping")
+            print(f"  [seed {seed}] no checkpoint_step*.pt files - skipping")
             continue
 
         out_dir = os.path.join(out_root, f"seed_{seed}")
@@ -532,7 +532,7 @@ def _run_phase_i(args: argparse.Namespace, exp_root: str, stride: int = 1):
             seed_dir = os.path.join(exp_root, f"seed_{seed}")
             ckpts    = _find_step_checkpoints(seed_dir, stride=stride)
             if not ckpts:
-                print(f"  [seed {seed}] no checkpoint_step*.pt files — skipping")
+                print(f"  [seed {seed}] no checkpoint_step*.pt files - skipping")
                 continue
 
             out_dir = os.path.join(out_root, f"w{w_tag}", f"seed_{seed}")
@@ -616,7 +616,7 @@ def main():
     parser.add_argument("--T_max", type=int, default=3_000_000)
     parser.add_argument(
         "--checkpoint_interval", type=int, default=50_000,
-        help="Steps between checkpoints (default: 50k — 60 per seed over 3M steps)",
+        help="Steps between checkpoints (default: 50k - 60 per seed over 3M steps)",
     )
     parser.add_argument(
         "--n_episodes", type=int, default=1000,
@@ -658,7 +658,7 @@ def main():
     # Run just this seed in-process and exit. This gives each seed an isolated
     # CUDA context so an OOM in one seed cannot poison subsequent seeds.
     if args.single_seed is not None:
-        _header(f"SEED {args.single_seed}  — Train + Inline Analysis")
+        _header(f"SEED {args.single_seed}  - Train + Inline Analysis")
         _run_seed(args.single_seed, args, exp_root)
         return
 
@@ -692,7 +692,7 @@ def main():
             "--skip", "C", "D", "F", "H", "I",
         ]
         for seed in args.seeds:
-            _header(f"SEED {seed}  — Train + Inline Analysis")
+            _header(f"SEED {seed}  - Train + Inline Analysis")
             cmd = base_cmd + ["--single_seed", str(seed)]
             for attempt in range(1, args.max_retries + 1):
                 print(f"  Launching subprocess: seed={seed} "
@@ -708,41 +708,41 @@ def main():
                     print("  Waiting 60s for GPU memory to clear before retry ...")
                     time.sleep(60)
             else:
-                final_msg = (f"Seed {seed} failed all {args.max_retries} attempts — skipping")
+                final_msg = (f"Seed {seed} failed all {args.max_retries} attempts - skipping")
                 print(f"\n  [FATAL] {final_msg}")
-                _notify("Rainbow Pipeline — Seed Abandoned", final_msg)
+                _notify("Rainbow Pipeline - Seed Abandoned", final_msg)
 
 
     if "C" not in skip_set:
-        _header("PHASE C — Scalar DQN Ablation")
+        _header("PHASE C - Scalar DQN Ablation")
         try:
             _run_phase_c(args, exp_root)
         except Exception:
             traceback.print_exc()
 
     if "D" not in skip_set:
-        _header("PHASE D — Fixed-Threshold Longitudinal Analysis")
+        _header("PHASE D - Fixed-Threshold Longitudinal Analysis")
         try:
             _run_phase_d(args, exp_root, stride=args.post_phase_stride)
         except Exception:
             traceback.print_exc()
 
     if "F" not in skip_set:
-        _header("PHASE F — Robustness CI Report")
+        _header("PHASE F - Robustness CI Report")
         try:
             _run_phase_f(args, exp_root)
         except Exception:
             traceback.print_exc()
 
     if "H" not in skip_set:
-        _header("PHASE H — Frozen RSA Longitudinal Analysis")
+        _header("PHASE H - Frozen RSA Longitudinal Analysis")
         try:
             _run_phase_h(args, exp_root, stride=args.post_phase_stride)
         except Exception:
             traceback.print_exc()
 
     if "I" not in skip_set:
-        _header("PHASE I — EPS Weight Sensitivity")
+        _header("PHASE I - EPS Weight Sensitivity")
         try:
             _run_phase_i(args, exp_root, stride=args.post_phase_stride)
         except Exception:

@@ -1,4 +1,4 @@
-"""Episode collection runner. Saves EvaluationBatch to a compressed temp file."""
+﻿"""Episode collection runner. Saves EvaluationBatch to a compressed temp file."""
 from __future__ import annotations
 
 import numpy as np
@@ -37,7 +37,7 @@ def run(entity: Entity, config: RunConfig,
     obs, _ = vec_env.reset()
 
     while len(episodes) < config.n_episodes:
-        # Buffer pre-step obs — these are what the agent saw when selecting each action.
+        # Buffer pre-step obs - these are what the agent saw when selecting each action.
         # Post-step obs from vec_env may be the reset obs when done=True.
         pre_obs = obs.copy()
         actions = [entity.select_action(model, pre_obs[i]) for i in range(config.num_envs)]
@@ -98,7 +98,7 @@ def _extract_env_info(infos: dict, env_idx: int,
     Handles both final_info (on done) and mid-episode dict-of-arrays format.
     """
     # On terminal step, gymnasium's AsyncVectorEnv may store the last real info
-    # in infos["final_info"][env_idx] — try that first when done.
+    # in infos["final_info"][env_idx] - try that first when done.
     if done:
         final = infos.get("final_info")
         if final is not None and env_idx < len(final) and final[env_idx] is not None:

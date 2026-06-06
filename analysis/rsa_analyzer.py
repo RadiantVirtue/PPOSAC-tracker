@@ -1,6 +1,6 @@
-"""RSA analysis using achievement stimulus frames collected during evaluation.
+﻿"""RSA analysis using achievement stimulus frames collected during evaluation.
 
-Consolidates shared/rsa.py and rainbow/rsa.py — the only difference between
+Consolidates shared/rsa.py and rainbow/rsa.py - the only difference between
 them was the obs_to_tensor call, now handled by entity.preprocess_obs.
 
 Builds a cosine-dissimilarity RDM over mean activation centroids per stimulus,
@@ -98,7 +98,7 @@ def _build_rdm(centroids: dict, labels: list[str]) -> np.ndarray:
     """Cosine dissimilarity RDM: RDM[i,j] = 1 - cos_sim(centroid_i, centroid_j).
 
     Entries where either centroid is None are left as NaN (stimulus not observed
-    at this checkpoint — preserved across checkpoints via frozen reference set).
+    at this checkpoint - preserved across checkpoints via frozen reference set).
     """
     n = len(labels)
     rdm = np.full((n, n), np.nan)
