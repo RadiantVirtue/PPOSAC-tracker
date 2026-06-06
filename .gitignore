@@ -6,3 +6,9 @@ __pycache__/
 *.pt
 .npz
 .rar
+
+
+.claude/
+
+# Local documentation (untracked)
+CODEBASE.md

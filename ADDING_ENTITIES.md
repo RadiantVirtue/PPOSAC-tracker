@@ -303,6 +303,7 @@ Defined in `core/entity.py`. All fields and methods must be satisfied structural
 | `preprocess_obs(model, obs_np, device)` | `torch.Tensor` | `(N, H, W, C)` uint8 → model-ready tensor |
 | `get_policy(model)` | `Any` | Returns the hookable sub-module (e.g. `model.policy`) |
 | `compute_gradients(model, episodes, device, batch_size)` | `GradientResult` | Gradient analysis for one episode group |
+| `train(n_steps, on_checkpoint)` | `None` | Train the agent for `n_steps` steps; call `on_checkpoint(step, ckpt_path)` at each checkpoint interval |
 
 ---
 

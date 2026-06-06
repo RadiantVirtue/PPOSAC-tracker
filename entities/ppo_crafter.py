@@ -83,6 +83,63 @@ class PPOCrafter:
         """Return model.policy - the hookable ActorCriticPolicy."""
         return model.policy
 
+    def train(self, n_steps: int, on_checkpoint: callable, **kwargs) -> None:
+        """Train PPO on Crafter via SB3, calling on_checkpoint(step, ckpt_path) at intervals.
+
+        kwargs (all optional):
+          seed (int, default 0), device (str, default "cpu"),
+          checkpoint_freq (int, default 50_000), experiment_root (str, default "experiment_root"),
+          n_envs (int, default 8)
+        """
+        import os
+        from stable_baselines3.common.callbacks import BaseCallback
+        from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage
+
+        seed             = kwargs.get("seed", 0)
+        device           = kwargs.get("device", "cpu")
+        checkpoint_freq  = kwargs.get("checkpoint_freq", 50_000)
+        experiment_root  = kwargs.get("experiment_root", "experiment_root")
+        n_envs           = kwargs.get("n_envs", 8)
+
+        ckpt_dir = os.path.join(experiment_root, "checkpoints", "ppo")
+        os.makedirs(ckpt_dir, exist_ok=True)
+
+        make = self.make_env
+        env = VecTransposeImage(
+            DummyVecEnv([lambda i=i: make(seed=seed + i) for i in range(n_envs)])
+        )
+
+        model = PPO(
+            "CnnPolicy",
+            env,
+            verbose=0,
+            device=device,
+            seed=seed,
+            learning_rate=2.5e-4,
+            n_steps=128,
+            batch_size=256,
+            n_epochs=4,
+            gamma=0.99,
+            gae_lambda=0.95,
+            ent_coef=0.01,
+            clip_range=0.2,
+        )
+
+        _freq = checkpoint_freq
+        _dir  = ckpt_dir
+        _cb   = on_checkpoint
+
+        class _CheckpointCallback(BaseCallback):
+            def _on_step(self) -> bool:
+                if self.num_timesteps % _freq == 0 and self.num_timesteps > 0:
+                    path = os.path.join(_dir, f"ppo_step_{self.num_timesteps}.zip")
+                    self.model.save(path)
+                    _cb(self.num_timesteps, path)
+                return True
+
+        model.learn(n_steps, callback=_CheckpointCallback(), reset_num_timesteps=True)
+        env.close()
+
     def compute_gradients(self, model: PPO, episodes: list[EpisodeData],
                           device: str, batch_size: int = 10) -> GradientResult:
         """GAE-weighted policy gradient via SB3 policy.evaluate_actions().
