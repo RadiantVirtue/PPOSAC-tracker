@@ -1,9 +1,13 @@
 ﻿"""Episode collection runner. Saves EvaluationBatch to a compressed temp file."""
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import gymnasium as gym
+from tqdm import tqdm
 
+import core.output as output
 from core.data import EpisodeData, EvaluationBatch
 from core.entity import Entity
 from storage import temp_store
@@ -14,6 +18,9 @@ from training.run_config import RunConfig
 def run(entity: Entity, config: RunConfig,
         checkpoint_path: str, checkpoint_step: int) -> str:
     """Collect n_episodes and save to temp file. Returns the temp file path."""
+    output.eval_start(checkpoint_step, config.n_steps, config.n_episodes, config.num_envs)
+    t0 = time.monotonic()
+
     model   = entity.load_checkpoint(checkpoint_path, config.device)
     vec_env = gym.vector.AsyncVectorEnv(
         [(lambda i: lambda: entity.make_env(config.seed + i))(i)
@@ -36,6 +43,7 @@ def run(entity: Entity, config: RunConfig,
 
     obs, _ = vec_env.reset()
 
+    pbar = tqdm(total=config.n_episodes, desc="episodes", unit="ep", leave=False)
     while len(episodes) < config.n_episodes:
         # Buffer pre-step obs - these are what the agent saw when selecting each action.
         # Post-step obs from vec_env may be the reset obs when done=True.
@@ -68,6 +76,7 @@ def run(entity: Entity, config: RunConfig,
                 )
                 episodes.append(ep)
                 eps_scores.append(eps)
+                pbar.update(1)
 
                 for label, frame in trackers[i].get_labelled_frames().items():
                     achievement_frames.setdefault(label, []).append(frame)
@@ -78,7 +87,11 @@ def run(entity: Entity, config: RunConfig,
                 env_rewards[i] = []
                 env_dones[i]   = []
 
+    pbar.close()
     vec_env.close()
+
+    mean_eps = float(np.mean(eps_scores)) if eps_scores else 0.0
+    output.eval_done(len(episodes), mean_eps, time.monotonic() - t0)
 
     batch = EvaluationBatch(
         entity_id          = entity.entity_id,

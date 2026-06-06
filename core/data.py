@@ -52,7 +52,6 @@ class AnalysisResult:
     """Final output of one checkpoint analysis. Logged to MLflow."""
     entity_id:                     str
     checkpoint_step:               int
-    split_mode:                    str
     n_success:                     int
     n_failure:                     int
     threshold_eps:                 object          # float or (float, float)
@@ -68,6 +67,7 @@ class AnalysisResult:
     rsa_rdm:                       object | None   # list[list[float]] or None
     rsa_labels:                    list[str]
     gradient_variants:             dict            # Rainbow IS-weighted extras; {} for PPO
+    achievement_observations:      dict            # display_label -> frame count at this checkpoint
     metadata:                      dict
 
     def to_dict(self) -> dict:

@@ -12,6 +12,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 from stable_baselines3 import PPO
+from tqdm import tqdm
 
 from core.data import EpisodeData, GradientResult
 from core.gradient_utils import OnlineGradientAggregator
@@ -99,7 +100,8 @@ class PPOCrafter:
             batch = episodes[i: i + batch_size]
             batch_agg = OnlineGradientAggregator(list(policy.named_parameters()))
 
-            for episode in batch:
+            for episode in tqdm(batch, desc=f"gradients (batch {i // batch_size + 1})",
+                                unit="ep", leave=False):
                 policy.zero_grad()
 
                 obs_tensor, _ = policy.obs_to_tensor(episode.observations)

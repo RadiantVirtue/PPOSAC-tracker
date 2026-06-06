@@ -16,10 +16,8 @@ class RunConfig:
     device:      str   = "cpu"
     seed:        int   = 0
 
-    split_mode:        str         = "percentile"
-    percentile_x:      int         = 25
-    fixed_thresholds:  tuple | None = None
-    eps_weight:        float        = 0.9
+    percentile_x:  int   = 25
+    eps_weight:    float = 0.9
 
     temp_dir:            str = "temp/"
     mlflow_tracking_uri: str = "mlruns/"

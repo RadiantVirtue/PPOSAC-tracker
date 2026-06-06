@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import analysis.pipeline as analysis_pipeline
+import core.output as output
 import storage.mlflow_logger as mlflow_logger
 import training.eval_runner as eval_runner
 from core.entity import Entity
@@ -10,6 +11,7 @@ from training.run_config import RunConfig
 
 def run(entity: Entity, config: RunConfig) -> None:
     """Run training, evaluation, and analysis for the given entity and config."""
+    output.training_start(entity.entity_id, config)
     run_id = mlflow_logger.init_run(entity.entity_id, config)
 
     entity.train(

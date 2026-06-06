@@ -1,6 +1,7 @@
 """Activation extraction, dimensionality reduction, clustering, and centroid utilities."""
 import numpy as np
 import torch
+from tqdm import tqdm
 from umap import UMAP
 from hdbscan import HDBSCAN
 
@@ -28,7 +29,9 @@ def extract_activations(model, observations, layer_name, device="cuda"):
 
     with torch.no_grad():
         batch_size = 256
-        for i in range(0, len(observations), batch_size):
+        n_batches = (len(observations) + batch_size - 1) // batch_size
+        for i in tqdm(range(0, len(observations), batch_size),
+                      total=n_batches, desc="activations", unit="batch", leave=False):
             batch = observations[i: i + batch_size].to(device)
             model(batch)
 

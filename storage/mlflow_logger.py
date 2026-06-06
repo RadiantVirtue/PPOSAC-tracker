@@ -20,12 +20,11 @@ def init_run(entity_id: str, config: RunConfig) -> str:
         tags={"entity_id": entity_id},
     )
     mlflow.log_params({
-        "entity_id":   entity_id,
-        "split_mode":  config.split_mode,
-        "n_episodes":  config.n_episodes,
-        "seed":        config.seed,
-        "num_envs":    config.num_envs,
-        "device":      config.device,
+        "entity_id":    entity_id,
+        "n_episodes":   config.n_episodes,
+        "seed":         config.seed,
+        "num_envs":     config.num_envs,
+        "device":       config.device,
         "percentile_x": config.percentile_x,
     })
     return run.info.run_id
@@ -54,6 +53,10 @@ def log(result: AnalysisResult, run_id: str, step: int) -> None:
     for group_name, alignment in result.rsa_alignment.items():
         if alignment is not None:
             metrics[f"rsa_alignment_{group_name}"] = alignment
+
+    for label, count in result.achievement_observations.items():
+        safe_key = "achievement_obs_" + label.lower().replace(" ", "_")
+        metrics[safe_key] = 1.0 if count > 0 else 0.0
 
     mlflow.log_metrics(metrics, step=step)
 
