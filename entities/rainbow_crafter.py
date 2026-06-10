@@ -4,7 +4,7 @@ Implements the Entity protocol for Rainbow DQN trained on the Crafter environmen
 
 This file is structured in two halves:
 
-  Half 1 — Custom Rainbow DQN implementation
+  Half 1 - Custom Rainbow DQN implementation
   ──────────────────────────────────────────
   The algorithm implementation, unchanged from its standalone form.
   This code is algorithm-specific and would look the same in any project
@@ -18,7 +18,7 @@ This file is structured in two halves:
     - Gradient analysis utilities (_forward_per_loss, IS weights, etc.)
     - _compute_sign_indicator_gradients (MORA post-hoc analysis)
 
-  Half 2 — Pipeline glue
+  Half 2 - Pipeline glue
   ──────────────────────
   Adapter code connecting the Rainbow implementation to the entity protocol
   and the data formats expected by training/trainer.py, training/eval_runner.py,
@@ -30,13 +30,16 @@ This file is structured in two halves:
     - RainbowCrafter class (all protocol methods + train())
     - Private helpers (_build_args, _build_train_args, _to_rb_ep, etc.)
 
-compute_gradients() returns four gradient variants:
-  raw_mean              IS-weighted mean (primary result)
-  variants["uniform"]   Uniform-weighted mean
-  variants["adam"]      Adam effective update: exp_avg / sqrt(exp_avg_sq + ε)
-                        Addresses the Adam decoupling finding (Appendix B).
-  variants["positive"]  Indicator-weighted gradient from r>0 transitions (MORA)
-  variants["neutral"]   Indicator-weighted gradient from r=0 transitions (MORA)
+compute_gradients() returns five gradient variants:
+  raw_mean               IS-weighted mean (primary result)
+  variants["uniform"]    Uniform-weighted mean
+  variants["adam"]       Adam effective update: exp_avg / sqrt(exp_avg_sq + ε)
+                         Addresses the Adam decoupling finding (Appendix B).
+  variants["training"]   Mean gradient from actual training batches between checkpoints
+                         (TrainingGradientCapture). Ground truth against which eval-episode
+                         proxy variants can be compared.
+  variants["positive"]   Indicator-weighted gradient from r>0 transitions (MORA)
+  variants["neutral"]    Indicator-weighted gradient from r=0 transitions (MORA)
 """
 from __future__ import annotations
 
@@ -77,7 +80,7 @@ ADAM_EPS   = 1e-8
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Half 1 — Custom Rainbow DQN implementation
+# Half 1 - Custom Rainbow DQN implementation
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── A: Network ───────────────────────────────────────────────────────────────
@@ -88,7 +91,7 @@ class NoisyLinear(nn.Module):
     In train() mode: y = (μ_w + σ_w ⊙ ε_w) x + (μ_b + σ_b ⊙ ε_b)
     In eval() mode:  y = μ_w x + μ_b  (ε = 0, deterministic)
 
-    σ parameters carry no gradient during eval() — excluded from gradient
+    σ parameters carry no gradient during eval() - excluded from gradient
     analysis to avoid zero-gradient artefacts.
     """
 
@@ -335,23 +338,17 @@ class ReplayMemory:
 
     def sample(self, batch_size):
         p_total  = self.transitions.total()
-        probs, idxs, tree_idxs, states, actions, returns, next_states, nonterminals = \
+        probs, _, tree_idxs, states, actions, returns, next_states, nonterminals = \
             self._get_samples_from_segments(batch_size, p_total)
         probs   = probs / p_total
         capacity = self.capacity if self.transitions.full else self.transitions.index
         weights  = (capacity * probs) ** -self.priority_weight
         weights  = torch.tensor(weights / weights.max(), dtype=torch.float32, device=self.device)
-        outcome_labels = self._outcome_label[idxs % self.capacity]
-        return tree_idxs, states, actions, returns, next_states, nonterminals, weights, outcome_labels
+        return tree_idxs, states, actions, returns, next_states, nonterminals, weights
 
-    def update_priorities(self, idxs, priorities, mora_modifier=None, rewards=None, mora_tracker=None):
-        adjusted = np.power(priorities, self.priority_exponent)
-        if mora_modifier is not None and rewards is not None:
-            neg_mask = np.asarray(rewards) <= 0
-            adjusted[neg_mask] *= mora_modifier
-            if mora_tracker is not None:
-                mora_tracker.set_last_frac_neg(float(neg_mask.mean()))
-        self.transitions.update(idxs, adjusted)
+    def update_priorities(self, idxs, priorities):
+        priorities = np.power(priorities, self.priority_exponent)
+        self.transitions.update(idxs, priorities)
 
     def __iter__(self):
         self.current_idx = 0
@@ -467,14 +464,6 @@ class _RainbowAgent:
             self.online_net.parameters(), lr=args.learning_rate, eps=args.adam_eps
         )
 
-        outcome_tau = getattr(args, 'outcome_tau', None)
-        self.outcome_tau = outcome_tau
-        if outcome_tau is not None:
-            C = float(self.atoms)
-            self._w_success = C * torch.softmax( self.support / outcome_tau, dim=0)
-            self._w_failure = C * torch.softmax(-self.support / outcome_tau, dim=0)
-            self._w_neutral = torch.ones(self.atoms, dtype=torch.float32, device=args.device)
-
     def enable_grad_capture(self):
         self._grad_capture = TrainingGradientCapture(list(self.online_net.named_parameters()))
 
@@ -491,15 +480,8 @@ class _RainbowAgent:
     def act_e_greedy(self, state, epsilon=0.001):
         return np.random.randint(0, self.action_space) if np.random.random() < epsilon else self.act(state)
 
-    def _outcome_atom_weights(self, outcome_labels: np.ndarray) -> torch.Tensor:
-        labels = torch.tensor(outcome_labels, dtype=torch.int8, device=self.device)
-        W = self._w_neutral.unsqueeze(0).expand(self.batch_size, -1).clone()
-        W[labels == 1]  = self._w_success
-        W[labels == -1] = self._w_failure
-        return W
-
     def learn(self, mem, mora_tracker=None):
-        idxs, states, actions, returns, next_states, nonterminals, weights, outcome_labels = \
+        idxs, states, actions, returns, next_states, nonterminals, weights = \
             mem.sample(self.batch_size)
 
         log_ps   = self.online_net(states, log=True)
@@ -525,11 +507,7 @@ class _RainbowAgent:
             m.view(-1).index_add_(0, (l + offset).view(-1), (pns_a * (u.float() - b)).view(-1))
             m.view(-1).index_add_(0, (u + offset).view(-1), (pns_a * (b - l.float())).view(-1))
 
-        if self.outcome_tau is not None:
-            atom_weights = self._outcome_atom_weights(outcome_labels)
-            loss = -torch.sum(atom_weights * m * log_ps_a, 1)
-        else:
-            loss = -torch.sum(m * log_ps_a, 1)
+        loss = -torch.sum(m * log_ps_a, 1)
 
         self.online_net.zero_grad()
 
@@ -564,13 +542,7 @@ class _RainbowAgent:
             mora_tracker.accumulate(grad_flat, grad_flat_r0=grad_flat_r0)
 
         self.optimiser.step()
-        mem.update_priorities(
-            idxs,
-            loss.detach().cpu().numpy(),
-            mora_modifier=mora_tracker.m if mora_tracker is not None else None,
-            rewards=returns.detach().cpu().numpy(),
-            mora_tracker=mora_tracker,
-        )
+        mem.update_priorities(idxs, loss.detach().cpu().numpy())
 
     def update_target_net(self):
         self.target_net.load_state_dict(self.online_net.state_dict())
@@ -841,7 +813,7 @@ def _compute_sign_indicator_gradients(
     backpropagates (indicator_s / n_s * per_loss).sum() for each sign group.
 
     Args:
-        rb_eps:          list[_RbEp] — episodes in CHW float32 format
+        rb_eps:          list[_RbEp] - episodes in CHW float32 format
         track_coherence: if True, captures per-episode gradient dicts
 
     Returns:
@@ -918,7 +890,7 @@ def _compute_sign_indicator_gradients(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Half 2 — Pipeline glue
+# Half 2 - Pipeline glue
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── H: Env wrappers ──────────────────────────────────────────────────────────
@@ -978,12 +950,13 @@ def make_crafter_env(seed=None, eps_weight: float = 0.9) -> gym.Env:
 @dataclass
 class RainbowModel:
     """Loaded Rainbow DQN checkpoint. Passed as the 'model' arg to all entity methods."""
-    online_net:  nn.Module
-    target_net:  nn.Module
-    args:        argparse.Namespace
-    support:     torch.Tensor       # (atoms,) precomputed value support on CPU
-    adam_state:  dict               # optimizer_state_dict['state'] keyed by param index
-    global_step: int = 0
+    online_net:         nn.Module
+    target_net:         nn.Module
+    args:               argparse.Namespace
+    support:            torch.Tensor       # (atoms,) precomputed value support on CPU
+    adam_state:         dict               # optimizer_state_dict['state'] keyed by param index
+    global_step:        int = 0
+    training_gradient:  dict | None = None  # mean gradient from TrainingGradientCapture between checkpoints
 
 
 @dataclass
@@ -1039,12 +1012,13 @@ class RainbowCrafter:
         adam_state = opt_state.get("state", {})
 
         return RainbowModel(
-            online_net  = online_net,
-            target_net  = target_net,
-            args        = args_ns,
-            support     = support,
-            adam_state  = adam_state,
-            global_step = int(ckpt.get("global_step", 0)),
+            online_net        = online_net,
+            target_net        = target_net,
+            args              = args_ns,
+            support           = support,
+            adam_state        = adam_state,
+            global_step       = int(ckpt.get("global_step", 0)),
+            training_gradient = ckpt.get("training_gradient"),
         )
 
     def select_action(self, model: RainbowModel, obs: np.ndarray,
@@ -1182,6 +1156,14 @@ class RainbowCrafter:
                 per_episode = [],
                 variants    = {},
                 metadata    = {"source": "optimizer_state"},
+            )
+
+        if model.training_gradient is not None:
+            variants["training"] = GradientResult(
+                raw_mean    = model.training_gradient,
+                per_episode = [],
+                variants    = {},
+                metadata    = {"source": "live_training_batches"},
             )
 
         sign_grads = _compute_sign_indicator_gradients(
@@ -1418,7 +1400,6 @@ def _build_train_args(n_steps: int, **kwargs) -> argparse.Namespace:
         checkpoint_interval = kwargs.get("checkpoint_interval",  100_000),
         experiment_root     = kwargs.get("experiment_root",      "experiment_root"),
         device              = torch.device(device_str),
-        outcome_tau         = kwargs.get("outcome_tau",          None),
     )
 
 
