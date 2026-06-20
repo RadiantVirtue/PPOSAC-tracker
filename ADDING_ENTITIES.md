@@ -134,18 +134,22 @@ class {Algorithm}{Environment}:
         """
         raise NotImplementedError
 
-    def compute_eps(self, achievements: dict[str, bool], inventory: dict) -> float:
+    def compute_eps(self, info: dict) -> float:
         """Compute Episode Performance Score for one completed episode.
 
         Used for success/failure partitioning only. NOT the same as
         achievement frame logging (handled separately by AchievementTracker).
 
         Args:
-            achievements: {ach_id: bool} from env info at episode end
-            inventory:    {material: count} from env info (pass {} if not used)
+            info: raw env info dict from the final step of the episode.
+                  Extract whatever your environment provides, e.g.:
+                    achievements = info.get("achievements", {})
+                    inventory    = info.get("inventory", {})
         Returns:
             float - EPS score; higher = better episode
         """
+        achievements   = info.get("achievements", {})
+        inventory      = info.get("inventory", {})
         n_achieved     = sum(1 for v in achievements.values() if v)
         materials_frac = _materials_fraction(achievements, inventory)
         return n_achieved + EPS_WEIGHT * materials_frac
@@ -190,7 +194,7 @@ class {Algorithm}{Environment}:
             GradientResult with:
                 raw_mean:    dict[layer_name -> mean gradient tensor]
                 per_episode: list of L2-normalised gradient dicts (one per batch)
-                variants:    {} for single-variant algorithms (e.g. PPO);
+                variants:    None for single-variant algorithms (e.g. PPO);
                              named dict for multi-variant (e.g. Rainbow IS/uniform)
                 metadata:    {"n_transitions": int, ...}
         """
@@ -223,7 +227,7 @@ class {Algorithm}{Environment}:
         return GradientResult(
             raw_mean    = overall_agg.mean_gradient(),
             per_episode = per_episode_grads,
-            variants    = {},
+            variants    = None,
             metadata    = {"n_transitions": sum(len(ep.rewards) for ep in episodes)},
         )
 
@@ -299,11 +303,11 @@ Defined in `core/entity.py`. All fields and methods must be satisfied structural
 | `make_env(seed)` | `gym.Env` | Returns a fully-wrapped gymnasium environment |
 | `load_checkpoint(path, device)` | `Any` | Loads and returns the model |
 | `select_action(model, obs, deterministic)` | `int` | Returns action index for single obs |
-| `compute_eps(achievements, inventory)` | `float` | EPS score for one episode |
+| `compute_eps(info)` | `float` | EPS score for one episode; extract env-specific fields from `info` dict internally |
 | `preprocess_obs(model, obs_np, device)` | `torch.Tensor` | `(N, H, W, C)` uint8 → model-ready tensor |
 | `get_policy(model)` | `Any` | Returns the hookable sub-module (e.g. `model.policy`) |
 | `compute_gradients(model, episodes, device, batch_size)` | `GradientResult` | Gradient analysis for one episode group |
-| `train(n_steps, on_checkpoint)` | `None` | Train the agent for `n_steps` steps; call `on_checkpoint(step, ckpt_path)` at each checkpoint interval |
+| `train(n_steps, checkpoint_every, on_checkpoint)` | `None` | Train the agent for `n_steps` steps; call `on_checkpoint(step, ckpt_path)` every `checkpoint_every` steps |
 
 ---
 

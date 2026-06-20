@@ -1,4 +1,4 @@
-﻿"""Canonical data structures shared across the entire pipeline."""
+"""Canonical data structures shared across the entire pipeline."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -33,60 +33,70 @@ class GradientResult:
     """Gradient analysis output for one episode group."""
     raw_mean:    dict[str, np.ndarray]          # layer_name -> mean gradient tensor
     per_episode: list[dict[str, np.ndarray]]    # per-batch L2-normalised gradient dicts
-    variants:    dict[str, "GradientResult"]    # empty dict {} for PPO
+    variants:    dict[str, "GradientResult"] | None   # None for PPO; named dict for Rainbow
     metadata:    dict
 
 
+# ---------------------------------------------------------------------------
+# Analysis sub-dataclasses — one per analyzer, grouped into AnalysisResult
+# ---------------------------------------------------------------------------
+
 @dataclass
-class ActivationResult:
-    """Activation analysis output for success + failure groups combined."""
-    activations:    np.ndarray   # (N_total, D) float32
-    projected:      np.ndarray   # (N_total, 2) float32 - UMAP 2-D
-    cluster_labels: np.ndarray   # (N_total,) int - HDBSCAN (-1 = noise)
-    centroids:      dict         # {"success": (D,), "failure": (D,)}
-    cluster_stats:  dict
+class GradientMetrics:
+    """Scalar metrics derived from gradient analysis."""
+    opposition_score:  float | None
+    coherence_success: float | None
+    coherence_failure: float | None
+    magnitude_success: float | None
+    magnitude_failure: float | None
+    variants:          dict[str, GradientResult] | None  # None for PPO
+
+
+@dataclass
+class ActivationMetrics:
+    """Scalar metrics derived from activation analysis."""
+    separation:      float | None
+    cosine_distance: float | None
+    cluster_stats:   dict
+
+
+@dataclass
+class RSAMetrics:
+    """Scalar metrics and artifacts from RSA analysis."""
+    alignment: dict[str, float | None]   # {group_name: spearman_rho}
+    rdm:       list[list[float]] | None
+    labels:    list[str]
 
 
 @dataclass
 class AnalysisResult:
     """Final output of one checkpoint analysis. Logged to MLflow."""
-    entity_id:                     str
-    checkpoint_step:               int
-    n_success:                     int
-    n_failure:                     int
-    threshold_eps:                 object          # float or (float, float)
-    opposition_score:              float | None
-    coherence_success:             float | None
-    coherence_failure:             float | None
-    gradient_magnitude_success:    float | None
-    gradient_magnitude_failure:    float | None
-    activation_separation:         float | None
-    activation_cosine_distance:    float | None
-    cluster_stats:                 dict
-    rsa_alignment:                 dict            # {group_name: float | None}
-    rsa_rdm:                       object | None   # list[list[float]] or None
-    rsa_labels:                    list[str]
-    gradient_variants:             dict            # Rainbow IS-weighted extras; {} for PPO
-    achievement_observations:      dict            # display_label -> frame count at this checkpoint
-    metadata:                      dict
+    entity_id:       str
+    checkpoint_step: int
+    n_success:       int
+    n_failure:       int
+    threshold_eps:   object          # (float, float) lower/upper percentile boundaries
+    gradients:       GradientMetrics
+    activations:     ActivationMetrics
+    rsa:             RSAMetrics
+    achievement_observations: dict  # display_label -> frame count at this checkpoint
+    metadata:        dict
 
     def to_dict(self) -> dict:
-        """Return a JSON-serialisable dict. Handles numpy scalar types."""
+        """Return a JSON-serialisable dict. Handles numpy scalar types and nested dataclasses."""
         def _convert(obj):
+            if hasattr(obj, "__dataclass_fields__"):
+                return {k: _convert(v) for k, v in obj.__dict__.items()}
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
             if isinstance(obj, (np.float32, np.float64)):
                 return float(obj)
             if isinstance(obj, (np.int32, np.int64)):
                 return int(obj)
+            if isinstance(obj, dict):
+                return {kk: _convert(vv) for kk, vv in obj.items()}
+            if isinstance(obj, list):
+                return [_convert(v) for v in obj]
             return obj
 
-        d = {}
-        for k, v in self.__dict__.items():
-            if isinstance(v, np.ndarray):
-                d[k] = v.tolist()
-            elif isinstance(v, dict):
-                d[k] = {kk: _convert(vv) for kk, vv in v.items()}
-            else:
-                d[k] = _convert(v)
-        return d
+        return {k: _convert(v) for k, v in self.__dict__.items()}

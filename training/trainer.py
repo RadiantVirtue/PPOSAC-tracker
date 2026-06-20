@@ -15,8 +15,9 @@ def run(entity: Entity, config: RunConfig) -> None:
     run_id = mlflow_logger.init_run(entity.entity_id, config)
 
     entity.train(
-        n_steps       = config.n_steps,
-        on_checkpoint = lambda step, ckpt_path: _on_checkpoint(
+        n_steps          = config.n_steps,
+        checkpoint_every = config.eval_every,
+        on_checkpoint    = lambda step, ckpt_path: _on_checkpoint(
             entity, config, run_id, step, ckpt_path),
     )
 

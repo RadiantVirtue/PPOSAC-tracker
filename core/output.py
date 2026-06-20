@@ -52,15 +52,17 @@ def analysis_stage(name: str, detail: str = "") -> None:
 
 def analysis_done(result) -> None:
     parts = []
-    if result.opposition_score is not None:
-        parts.append(f"opp={result.opposition_score:+.2f}")
-    if result.coherence_success is not None:
-        parts.append(f"coh_s={result.coherence_success:.2f}")
-    if result.coherence_failure is not None:
-        parts.append(f"coh_f={result.coherence_failure:.2f}")
-    if result.activation_separation is not None:
-        parts.append(f"sep={result.activation_separation:.2f}")
-    rsa_items = {k: v for k, v in result.rsa_alignment.items() if v is not None}
+    g = result.gradients
+    a = result.activations
+    if g.opposition_score is not None:
+        parts.append(f"opp={g.opposition_score:+.2f}")
+    if g.coherence_success is not None:
+        parts.append(f"coh_s={g.coherence_success:.2f}")
+    if g.coherence_failure is not None:
+        parts.append(f"coh_f={g.coherence_failure:.2f}")
+    if a.separation is not None:
+        parts.append(f"sep={a.separation:.2f}")
+    rsa_items = {k: v for k, v in result.rsa.alignment.items() if v is not None}
     for k, v in list(rsa_items.items())[:2]:
         parts.append(f"rsa_{k}={v:.2f}")
     _log("RESULT", "  ".join(parts) if parts else "(no metrics)")

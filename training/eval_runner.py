@@ -63,10 +63,7 @@ def run(entity: Entity, config: RunConfig,
             env_dones[i].append(done)
 
             if done and len(episodes) < config.n_episodes:
-                eps = entity.compute_eps(
-                    step_info.get("achievements", {}),
-                    step_info.get("inventory", {}),
-                )
+                eps = entity.compute_eps(step_info)
 
                 ep = EpisodeData(
                     observations = np.array(env_obs[i],     dtype=np.uint8),

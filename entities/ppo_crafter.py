@@ -63,11 +63,13 @@ class PPOCrafter:
         action, _ = model.predict(obs[None], deterministic=deterministic)
         return int(action[0])
 
-    def compute_eps(self, achievements: dict[str, bool], inventory: dict) -> float:
+    def compute_eps(self, info: dict) -> float:
         """EPS = count_achievements + EPS_WEIGHT * materials_fraction.
 
         Used for episode partitioning only. Not related to achievement frame logging.
         """
+        achievements   = info.get("achievements", {})
+        inventory      = info.get("inventory", {})
         n_achieved     = sum(1 for v in achievements.values() if v)
         materials_frac = _materials_fraction(achievements, inventory)
         return float(n_achieved + EPS_WEIGHT * materials_frac)
@@ -83,23 +85,17 @@ class PPOCrafter:
         """Return model.policy - the hookable ActorCriticPolicy."""
         return model.policy
 
-    def train(self, n_steps: int, on_checkpoint: callable, **kwargs) -> None:
-        """Train PPO on Crafter via SB3, calling on_checkpoint(step, ckpt_path) at intervals.
-
-        kwargs (all optional):
-          seed (int, default 0), device (str, default "cpu"),
-          checkpoint_freq (int, default 50_000), experiment_root (str, default "experiment_root"),
-          n_envs (int, default 8)
-        """
+    def train(self, n_steps: int, checkpoint_every: int, on_checkpoint: callable) -> None:
+        """Train PPO on Crafter via SB3, calling on_checkpoint(step, ckpt_path) at intervals."""
         import os
         from stable_baselines3.common.callbacks import BaseCallback
         from stable_baselines3.common.vec_env import DummyVecEnv, VecTransposeImage
 
-        seed             = kwargs.get("seed", 0)
-        device           = kwargs.get("device", "cpu")
-        checkpoint_freq  = kwargs.get("checkpoint_freq", 50_000)
-        experiment_root  = kwargs.get("experiment_root", "experiment_root")
-        n_envs           = kwargs.get("n_envs", 8)
+        seed             = 0
+        device           = "cpu"
+        checkpoint_freq  = checkpoint_every
+        experiment_root  = "experiment_root"
+        n_envs           = 8
 
         ckpt_dir = os.path.join(experiment_root, "checkpoints", "ppo")
         os.makedirs(ckpt_dir, exist_ok=True)
@@ -185,7 +181,7 @@ class PPOCrafter:
         return GradientResult(
             raw_mean    = overall_agg.mean_gradient(),
             per_episode = per_episode_grads,
-            variants    = {},
+            variants    = None,
             metadata    = {"n_transitions": sum(len(ep.rewards) for ep in episodes)},
         )
 

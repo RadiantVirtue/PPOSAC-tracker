@@ -10,7 +10,7 @@ import core.metrics as metrics
 import core.output as output
 import storage.mlflow_logger as mlflow_logger
 import storage.temp_store as temp_store
-from core.data import AnalysisResult
+from core.data import ActivationMetrics, AnalysisResult, GradientMetrics, RSAMetrics
 from core.entity import Entity
 from core.thresholding import partition_episodes
 from training.run_config import RunConfig
@@ -66,31 +66,41 @@ def run(
         for label, frames in batch.achievement_frames.items()
     }
 
-    result = AnalysisResult(
-        entity_id         = entity.entity_id,
-        checkpoint_step   = batch.checkpoint_step,
-        n_success         = len(success_eps),
-        n_failure         = len(failure_eps),
-        threshold_eps     = threshold,
+    grad_metrics = GradientMetrics(
         opposition_score  = metrics.opposition_score(
                                 grad_success.raw_mean, grad_failure.raw_mean),
         coherence_success = metrics.coherence(grad_success.per_episode),
         coherence_failure = metrics.coherence(grad_failure.per_episode),
-        gradient_magnitude_success = metrics.gradient_magnitude(grad_success.raw_mean),
-        gradient_magnitude_failure = metrics.gradient_magnitude(grad_failure.raw_mean),
-        activation_separation      = metrics.activation_separation(
-                                         act_result.centroids["success"],
-                                         act_result.centroids["failure"]),
-        activation_cosine_distance = metrics.centroid_cosine_distance(
-                                         act_result.centroids["success"],
-                                         act_result.centroids["failure"]),
-        cluster_stats              = act_result.cluster_stats,
-        rsa_alignment              = rsa_result["alignments"],
-        rsa_rdm                    = rsa_result["rdm"],
-        rsa_labels                 = rsa_result["labels"],
-        gradient_variants          = grad_success.variants,
-        achievement_observations   = achievement_observations,
-        metadata                   = {
+        magnitude_success = metrics.gradient_magnitude(grad_success.raw_mean),
+        magnitude_failure = metrics.gradient_magnitude(grad_failure.raw_mean),
+        variants          = grad_success.variants,
+    )
+    act_metrics = ActivationMetrics(
+        separation      = metrics.activation_separation(
+                              act_result.centroids["success"],
+                              act_result.centroids["failure"]),
+        cosine_distance = metrics.centroid_cosine_distance(
+                              act_result.centroids["success"],
+                              act_result.centroids["failure"]),
+        cluster_stats   = act_result.cluster_stats,
+    )
+    rsa_metrics = RSAMetrics(
+        alignment = rsa_result["alignments"],
+        rdm       = rsa_result["rdm"],
+        labels    = rsa_result["labels"],
+    )
+
+    result = AnalysisResult(
+        entity_id                = entity.entity_id,
+        checkpoint_step          = batch.checkpoint_step,
+        n_success                = len(success_eps),
+        n_failure                = len(failure_eps),
+        threshold_eps            = threshold,
+        gradients                = grad_metrics,
+        activations              = act_metrics,
+        rsa                      = rsa_metrics,
+        achievement_observations = achievement_observations,
+        metadata                 = {
             "n_transitions_success": grad_success.metadata.get("n_transitions"),
             "n_transitions_failure": grad_failure.metadata.get("n_transitions"),
             "n_stimuli":             rsa_result["n_stimuli"],

@@ -1033,7 +1033,9 @@ class RainbowCrafter:
             q = (model.online_net(obs_t) * model.support.to(dev)).sum(2)
         return int(q.argmax(1).item())
 
-    def compute_eps(self, achievements: dict[str, bool], inventory: dict) -> float:
+    def compute_eps(self, info: dict) -> float:
+        achievements   = info.get("achievements", {})
+        inventory      = info.get("inventory", {})
         n_achieved     = sum(1 for v in achievements.values() if v)
         materials_frac = _materials_fraction(achievements, inventory)
         return float(n_achieved + EPS_WEIGHT * materials_frac)
@@ -1191,32 +1193,21 @@ class RainbowCrafter:
             },
         )
 
-    def train(self, n_steps: int, on_checkpoint: callable, **kwargs) -> None:
-        """Train Rainbow DQN on Crafter. MORA-PER and outcome weighting are always active.
+    def train(self, n_steps: int, checkpoint_every: int, on_checkpoint: callable) -> None:
+        """Train Rainbow DQN on Crafter. MORA-PER and outcome weighting are always active."""
+        seed                = 123
+        experiment_root     = "experiment_root"
+        checkpoint_interval = checkpoint_every
+        mora_k              = 10
+        percentile_x        = 25
+        resume_from         = None
+        keep_checkpoints    = False
 
-        kwargs (all optional, defaults match original training configuration):
-          seed (int, 123), device (str, auto), experiment_root (str, "experiment_root"),
-          checkpoint_interval (int, 100_000), mora_k (int, 10),
-          percentile_x (int, 25), resume_from (str|None), keep_checkpoints (bool, False)
-        """
-        seed                = kwargs.get("seed",                123)
-        experiment_root     = kwargs.get("experiment_root",     "experiment_root")
-        checkpoint_interval = kwargs.get("checkpoint_interval", 100_000)
-        mora_k              = kwargs.get("mora_k",              10)
-        percentile_x        = kwargs.get("percentile_x",        25)
-        resume_from         = kwargs.get("resume_from",         None)
-        keep_checkpoints    = kwargs.get("keep_checkpoints",    False)
-
-        device_str = kwargs.get("device", "cuda" if torch.cuda.is_available() else "cpu")
+        device_str = "cuda" if torch.cuda.is_available() else "cpu"
         args = _build_train_args(
             n_steps, seed=seed, experiment_root=experiment_root,
             checkpoint_interval=checkpoint_interval, device=device_str,
-            resume_from=resume_from, **{
-                k: v for k, v in kwargs.items()
-                if k not in ("seed", "experiment_root", "checkpoint_interval",
-                             "mora_k", "percentile_x", "resume_from",
-                             "keep_checkpoints", "device")
-            }
+            resume_from=resume_from,
         )
 
         np.random.seed(args.seed)
